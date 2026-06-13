@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { getHeight, createTerrain } from './terrain/Terrain.js';
 import { addTree, addFlower, addSunflower } from './props/vegetation.js';
-import { addHouse, addManor } from './props/houses.js';
+import { addHouse, addManor, addTowerHouse } from './props/houses.js';
 import { addCave } from './props/caves.js';
 
 export class WorldScene {
@@ -45,6 +45,16 @@ export class WorldScene {
     addHouse(this.scene, this.colliders, this.houseDoors, -25, 10, { owner: 'torvald' });
     addHouse(this.scene, this.colliders, this.houseDoors, 30, 25, { locked: true });
     addManor(this.scene, this.colliders, this.houseDoors, 0, -48);
+
+
+
+// litet tornhus öster om herrgården
+
+    addTowerHouse(
+  this.scene,
+  this.colliders,
+  this.houseDoors,
+  18, -48);
 
     addSunflower(this.scene, -8,   -41, 1.0);
     addSunflower(this.scene, -5,   -41, 1.15);

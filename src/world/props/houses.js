@@ -195,3 +195,88 @@ export function addGrass(scene, x, z) {
   g.position.set(x, y, z);
   scene.add(g);
 }
+
+// tornhus och höga byggnader
+export function addTowerHouse(scene, colliders, houseDoors, x, z) {
+  const y = getHeight(x, z);
+
+  const tower = new THREE.Group();
+
+  const stone = new THREE.MeshLambertMaterial({
+    color: 0x7b746c
+  });
+
+  const roofMat = new THREE.MeshLambertMaterial({
+    color: 0x4f4a58
+  });
+
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.4, 2.7, 8, 8),
+    stone
+  );
+
+  body.position.y = 4;
+  body.castShadow = true;
+  body.receiveShadow = true;
+
+  const roof = new THREE.Mesh(
+    new THREE.ConeGeometry(3.4, 3.2, 8),
+    roofMat
+  );
+
+  roof.position.y = 9.6;
+  roof.castShadow = true;
+
+  tower.add(body);
+  tower.add(roof);
+
+  tower.position.set(x, y, z);
+
+  scene.add(tower);
+
+  const door = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.2, 2.2),
+    new THREE.MeshLambertMaterial({
+      color: 0x2a2018
+    })
+  );
+
+  door.position.set(
+    x,
+    y + 1.1,
+    z + 2.45
+  );
+
+  scene.add(door);
+
+  houseDoors.push({
+    x,
+    z: z + 2.4,
+    owner: null,
+    locked: false
+  });
+
+  colliders.push({
+    x,
+    z,
+    radius: 3.2
+  });
+
+  const windowMat = new THREE.MeshLambertMaterial({
+    color: 0xaed8ff,
+    emissive: 0x335577
+  });
+
+  const window = new THREE.Mesh(
+    new THREE.BoxGeometry(0.9, 0.9, 0.1),
+    windowMat
+  );
+
+  window.position.set(
+    x,
+    y + 5,
+    z + 2.35
+  );
+
+  scene.add(window);
+}
