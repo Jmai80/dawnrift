@@ -3,7 +3,6 @@ import { getHeight } from '../world/Terrain.js';
 
 export class Player {
   constructor(scene, colliders = []) {
-    // --- Karaktärsmodell (origo i mitten, fötter vid -0.9) ---
     this.mesh = new THREE.Group();
 
     const tunic = new THREE.MeshLambertMaterial({ color: 0x3366cc });
@@ -11,7 +10,6 @@ export class Player {
     const skin  = new THREE.MeshLambertMaterial({ color: 0xf0c8a0 });
     const hair  = new THREE.MeshLambertMaterial({ color: 0x5c4023 });
 
-    // Ben – pivot vid höften (geometrin förskjuten nedåt)
     const legGeo = new THREE.BoxGeometry(0.25, 0.7, 0.25);
     legGeo.translate(0, -0.35, 0);
     this.legL = new THREE.Mesh(legGeo, pants);
@@ -19,11 +17,9 @@ export class Player {
     this.legR = this.legL.clone();
     this.legR.position.x = 0.18;
 
-    // Överkropp
     const torso = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.4), tunic);
     torso.position.y = 0.15;
 
-    // Armar – pivot vid axeln
     const armGeo = new THREE.BoxGeometry(0.18, 0.6, 0.18);
     armGeo.translate(0, -0.3, 0);
     this.armL = new THREE.Mesh(armGeo, tunic);
@@ -31,10 +27,12 @@ export class Player {
     this.armR = this.armL.clone();
     this.armR.position.x = 0.44;
 
-    // Huvud, hår och ögon
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 14, 12), skin);
     head.position.y = 0.78;
-    const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.29, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2.2), hair);
+    const hairCap = new THREE.Mesh(
+      new THREE.SphereGeometry(0.29, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2.2),
+      hair
+    );
     hairCap.position.y = 0.82;
     const eyeGeo = new THREE.SphereGeometry(0.04, 6, 6);
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
@@ -45,7 +43,6 @@ export class Player {
 
     this.mesh.add(this.legL, this.legR, torso, this.armL, this.armR, head, hairCap, eyeL, eyeR);
 
-    // Svärd vid höger hand (dolt tills upplockat)
     this.swordPivot = new THREE.Group();
     this.swordPivot.position.set(0.55, -0.1, 0);
     const blade = new THREE.Mesh(
@@ -84,16 +81,18 @@ export class Player {
     this.groundFn = getHeight;
     this.bounds = null;
 
-    // Animation
     this.walkTime = 0;
 
-    // Strid
     this.hasSword = false;
     this.attackTimer = 0;
     this.attackCooldown = 0;
     this.invulnTimer = 0;
     this.maxHp = 5;
     this.hp = this.maxHp;
+
+    // Ljud för svärdsslag
+    this.slashSound = new Audio('/audio/swordSlash.mp3');
+    this.slashSound.volume = 0.6;
 
     window.addEventListener('keydown', e => {
       if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
@@ -116,6 +115,8 @@ export class Player {
     if (!this.hasSword || this.attackCooldown > 0) return;
     this.attackTimer = 0.3;
     this.attackCooldown = 0.55;
+    this.slashSound.currentTime = 0;
+    this.slashSound.play().catch(() => {});
   }
 
   takeDamage(fromPos) {
@@ -136,7 +137,6 @@ export class Player {
       this.armL.rotation.x = -swing * 0.8;
       this.armR.rotation.x = swing * 0.8;
     } else {
-      // Glid mjukt tillbaka till vilopose
       const ease = Math.min(1, delta * 10);
       this.legL.rotation.x *= 1 - ease;
       this.legR.rotation.x *= 1 - ease;
@@ -149,7 +149,6 @@ export class Player {
     if (this.attackCooldown > 0) this.attackCooldown -= delta;
     if (this.invulnTimer > 0) this.invulnTimer -= delta;
 
-    // Svärdsanimation
     if (this.attackTimer > 0) {
       this.attackTimer -= delta;
       const t = 1 - this.attackTimer / 0.3;
@@ -187,7 +186,6 @@ export class Player {
     if (this.isJumping) {
       this.velocityY += this.gravity * delta;
       this.mesh.position.y += this.velocityY * delta;
-
       if (this.mesh.position.y <= groundLevel) {
         this.mesh.position.y = groundLevel;
         this.velocityY = 0;
@@ -215,7 +213,9 @@ export class Player {
     if (this.keys['KeyA'] || this.keys['ArrowLeft'])  this.mesh.position.x -= drift;
     if (this.keys['KeyD'] || this.keys['ArrowRight']) this.mesh.position.x += drift;
 
-    // Sprattla med armar och ben i luften
+    // Knuffas i sidled från t.ex. statyn så man inte landar inuti den
+    this.resolveCollisions();
+
     this.walkTime += delta * 6;
     const flail = Math.sin(this.walkTime) * 0.4;
     this.legL.rotation.x = flail;
@@ -240,10 +240,15 @@ export class Player {
       const dist = Math.sqrt(dx * dx + dz * dz);
       const minDist = c.radius + this.radius;
 
-      if (dist < minDist && dist > 0.001) {
-        const push = (minDist - dist) / dist;
-        this.mesh.position.x += dx * push;
-        this.mesh.position.z += dz * push;
+      if (dist < minDist) {
+        if (dist < 0.0001) {
+          // Exakt i mitten (t.ex. rakt ovanför statyn) – knuffa ut åt sidan
+          this.mesh.position.x += minDist;
+        } else {
+          const push = (minDist - dist) / dist;
+          this.mesh.position.x += dx * push;
+          this.mesh.position.z += dz * push;
+        }
       }
     }
   }

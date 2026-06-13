@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 
 export class Enemy {
-  constructor(scene, { x, z, name = 'Grottvätte', hp = 3, speed = 2.1, scale = 1, color = 0x7a2222 }) {
+  constructor(scene, {
+    x, z, name = 'Grottvätte', hp = 3, speed = 2.1, scale = 1,
+    color = 0x7a2222, colliders = [], bounds = null
+  }) {
     this.name = name;
     this.scene = scene;
     this.hp = hp;
@@ -10,6 +13,9 @@ export class Enemy {
     this.hitFlash = 0;
     this.invuln = 0;
     this.baseColor = color;
+    this.colliders = colliders;
+    this.bounds = bounds;
+    this.radius = 0.55 * scale;
 
     this.mesh = new THREE.Group();
     this.bodyMat = new THREE.MeshLambertMaterial({ color });
@@ -45,6 +51,26 @@ export class Enemy {
       const dir = playerPos.clone().sub(this.mesh.position).setY(0).normalize();
       this.mesh.position.addScaledVector(dir, this.speed * delta);
       this.mesh.lookAt(playerPos.x, this.mesh.position.y, playerPos.z);
+    }
+
+    this.resolveCollisions();
+  }
+
+  resolveCollisions() {
+    for (const c of this.colliders) {
+      const dx = this.mesh.position.x - c.x;
+      const dz = this.mesh.position.z - c.z;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      const min = c.radius + this.radius;
+      if (d < min && d > 0.0001) {
+        const push = (min - d) / d;
+        this.mesh.position.x += dx * push;
+        this.mesh.position.z += dz * push;
+      }
+    }
+    if (this.bounds) {
+      this.mesh.position.x = Math.min(this.bounds.maxX, Math.max(this.bounds.minX, this.mesh.position.x));
+      this.mesh.position.z = Math.min(this.bounds.maxZ, Math.max(this.bounds.minZ, this.mesh.position.z));
     }
   }
 

@@ -26,10 +26,10 @@ const quests = new QuestSystem();
 const minimap = new MinimapSystem();
 
 minimap.setMarkers([
-  { x: world.caves[0].x, z: world.caves[0].z, color: '#5ad8ff' }, // norr-grotta
-  { x: world.caves[1].x, z: world.caves[1].z, color: '#c07cff' }, // öster-grotta
-  { x: world.caves[2].x, z: world.caves[2].z, color: '#ff8855' }, // djupa grottan
-  { x: 0, z: 0, color: '#ffe08a' },                               // stoden
+  { x: world.caves[0].x, z: world.caves[0].z, color: '#5ad8ff' },
+  { x: world.caves[1].x, z: world.caves[1].z, color: '#c07cff' },
+  { x: world.caves[2].x, z: world.caves[2].z, color: '#ff8855' },
+  { x: 0, z: 0, color: '#ffe08a' },
   { x: 15, z: -20, color: '#caa46a' },
   { x: -25, z: 10, color: '#caa46a' },
   { x: 30, z: 25, color: '#caa46a' }
@@ -41,13 +41,11 @@ music.add('dungeon', '/audio/dungeon-theme.mp3');
 
 player.mesh.traverse(o => { if (o.isMesh) o.castShadow = true; });
 
-// --- Hus ---
 const houses = {
   elda: new HouseScene({ owner: 'elda' }),
   torvald: new HouseScene({ owner: 'torvald' })
 };
 
-// --- Grottor ---
 const dungeonNorth = new DungeonScene({ length: 60 });
 const dungeonEast = new DungeonScene({ length: 80 });
 const dungeonDeep = new DungeonScene({ layout: 'complex', bg: 0x070510 });
@@ -65,16 +63,20 @@ const dungeons = {
   north: {
     sceneObj: dungeonNorth,
     entrance: world.caves[0],
-    enemies: [new Enemy(dungeonNorth.scene, { x: 0, z: -42 })]
+    enemies: [new Enemy(dungeonNorth.scene, {
+      x: 0, z: -42, colliders: dungeonNorth.colliders, bounds: dungeonNorth.bounds
+    })]
   },
   east: {
     sceneObj: dungeonEast,
     entrance: world.caves[1],
     enemies: [
-      new Enemy(dungeonEast.scene, { x: -2, z: -35 }),
       new Enemy(dungeonEast.scene, {
-        x: 0, z: -62, name: 'Grottans väktare',
-        hp: 6, speed: 2.4, scale: 1.5, color: 0x4a1a5a
+        x: -2, z: -35, colliders: dungeonEast.colliders, bounds: dungeonEast.bounds
+      }),
+      new Enemy(dungeonEast.scene, {
+        x: 0, z: -62, name: 'Grottans väktare', hp: 6, speed: 2.4, scale: 1.5,
+        color: 0x4a1a5a, colliders: dungeonEast.colliders, bounds: dungeonEast.bounds
       })
     ]
   },
@@ -82,11 +84,17 @@ const dungeons = {
     sceneObj: dungeonDeep,
     entrance: world.caves[2],
     enemies: [
-      new Enemy(dungeonDeep.scene, { x: -9, z: -25, name: 'Skuggvätte', hp: 3, speed: 2.2 }),
-      new Enemy(dungeonDeep.scene, { x: 8, z: -25, name: 'Skuggvätte', hp: 3, speed: 2.2 }),
       new Enemy(dungeonDeep.scene, {
-        x: 0, z: -45, name: 'Djupets väktare',
-        hp: 8, speed: 2.5, scale: 1.7, color: 0x6a1a3a
+        x: -9, z: -25, name: 'Skuggvätte', hp: 3, speed: 2.2,
+        colliders: dungeonDeep.colliders, bounds: dungeonDeep.bounds
+      }),
+      new Enemy(dungeonDeep.scene, {
+        x: 8, z: -25, name: 'Skuggvätte', hp: 3, speed: 2.2,
+        colliders: dungeonDeep.colliders, bounds: dungeonDeep.bounds
+      }),
+      new Enemy(dungeonDeep.scene, {
+        x: 0, z: -45, name: 'Djupets väktare', hp: 8, speed: 2.5, scale: 1.7,
+        color: 0x6a1a3a, colliders: dungeonDeep.colliders, bounds: dungeonDeep.bounds
       })
     ]
   }
@@ -102,7 +110,6 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// --- NPCer ---
 const elda = new NPC(world.scene, {
   x: 12, z: -16, name: 'Elda', color: 0xaa3355, variant: 'dress',
   lines: [
@@ -124,7 +131,6 @@ npcs.forEach(n => {
   n.mesh.traverse(o => { if (o.isMesh) o.castShadow = true; });
 });
 
-// --- UI och tillstånd ---
 const promptEl = document.getElementById('prompt');
 const dialogEl = document.getElementById('dialog');
 const hudEl = document.getElementById('hud');
@@ -280,17 +286,12 @@ window.addEventListener('keydown', e => {
   }
 });
 
-// --- Scenbyten ---
 function enterDungeon(key) {
   location = key;
   clearArrows();
   const d = dungeons[key];
   d.sceneObj.scene.add(player.mesh);
-  player.teleport(0, -2, {
-    groundFn: () => 0,
-    colliders: d.sceneObj.colliders,
-    bounds: d.sceneObj.bounds
-  });
+  player.teleport(0, -2, { groundFn: () => 0, colliders: d.sceneObj.colliders, bounds: d.sceneObj.bounds });
 }
 
 function exitDungeon() {
@@ -339,7 +340,6 @@ function onFirstDungeonDamage() {
   showMessage('Du blev skadad! Elda i byn verkar ha lagt märke till det — sök upp henne.', 5);
 }
 
-// --- Spelloop ---
 const clock = new THREE.Clock();
 
 function animate() {
@@ -425,7 +425,6 @@ function animate() {
     }
   }
 
-  // Pilar
   for (let i = arrows.length - 1; i >= 0; i--) {
     const a = arrows[i];
     const step = 32 * delta;
@@ -448,7 +447,6 @@ function animate() {
     }
   }
 
-  // Minimap (bara ute i världen)
   if (location === 'world') {
     minimap.show();
     minimap.draw(player.mesh.position.x, player.mesh.position.z, player.mesh.rotation.y);
