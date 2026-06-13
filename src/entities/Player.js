@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { getHeight } from '../world/Terrain.js';
+import { getHeight } from '../world/terrain/Terrain.js';
 
 export class Player {
   constructor(scene, colliders = []) {
@@ -94,12 +94,20 @@ export class Player {
     this.slashSound = new Audio('/audio/swordSlash.mp3');
     this.slashSound.volume = 0.6;
 
+    this.inputEnabled = true;
+
     window.addEventListener('keydown', e => {
       if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
+      if (!this.inputEnabled) return;
       this.keys[e.code] = true;
       if (e.code === 'KeyF') this.attack();
     });
     window.addEventListener('keyup', e => this.keys[e.code] = false);
+  }
+
+  setInputEnabled(on) {
+    this.inputEnabled = on;
+    if (!on) this.keys = {}; // släpp alla intryckta tangenter
   }
 
   get attackActive() {

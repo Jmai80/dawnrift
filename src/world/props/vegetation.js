@@ -1,6 +1,72 @@
 import * as THREE from 'three';
 import { getHeight } from '../Terrain.js';
 
+export function addTree(scene, colliders, x, z) {
+  const tree = new THREE.Group();
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.3, 0.4, 2),
+    new THREE.MeshLambertMaterial({ color: 0x5c4033 })
+  );
+  trunk.position.y = 1;
+  trunk.castShadow = true;
+  const crown = new THREE.Mesh(
+    new THREE.ConeGeometry(1.8, 4, 8),
+    new THREE.MeshLambertMaterial({ color: 0x2d5a27 })
+  );
+  crown.position.y = 4;
+  crown.castShadow = true;
+  tree.add(trunk, crown);
+  tree.position.set(x, getHeight(x, z), z);
+  scene.add(tree);
+  colliders.push({ x, z, radius: 0.9 });
+}
+
+export function addFlower(scene, x, z, scale = 1.0) {
+  const y = getHeight(x, z);
+  const g = new THREE.Group();
+
+  const stemMat  = new THREE.MeshLambertMaterial({ color: 0x2d7a1f });
+  const leafMat  = new THREE.MeshLambertMaterial({ color: 0x1a5c10 });
+  const petalMat = new THREE.MeshLambertMaterial({ color: 0xcc1122 });
+  const budMat   = new THREE.MeshLambertMaterial({ color: 0xee2233 });
+
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 1.1, 8), stemMat);
+  stem.position.y = 0.55;
+  g.add(stem);
+
+  const leafGeo = new THREE.SphereGeometry(0.28, 8, 5);
+  leafGeo.scale(1, 0.28, 0.55);
+  const leafL = new THREE.Mesh(leafGeo, leafMat);
+  leafL.position.set(-0.28, 0.38, 0);
+  leafL.rotation.z = 0.5;
+  g.add(leafL);
+
+  const leafR = leafL.clone();
+  leafR.position.set(0.28, 0.52, 0);
+  leafR.rotation.z = -0.5;
+  g.add(leafR);
+
+  const bud = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), budMat);
+  bud.scale.y = 1.35;
+  bud.position.y = 1.2;
+  g.add(bud);
+
+  const petalGeo = new THREE.SphereGeometry(0.14, 8, 6);
+  petalGeo.scale(1, 0.4, 1);
+  for (let i = 0; i < 5; i++) {
+    const angle = (i / 5) * Math.PI * 2;
+    const petal = new THREE.Mesh(petalGeo, petalMat);
+    petal.position.set(Math.cos(angle) * 0.28, 1.14, Math.sin(angle) * 0.28);
+    petal.rotation.y = -angle;
+    petal.rotation.z = 0.55;
+    g.add(petal);
+  }
+
+  g.scale.setScalar(scale);
+  g.position.set(x, y, z);
+  scene.add(g);
+}
+
 export function addSunflower(scene, x, z, scale = 1.0) {
   const y = getHeight(x, z);
   const g = new THREE.Group();

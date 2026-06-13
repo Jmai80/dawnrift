@@ -9,7 +9,8 @@ import { InventorySystem } from '../systems/InventorySystem.js';
 import { QuestSystem } from '../systems/QuestSystem.js';
 import { MusicSystem } from '../systems/MusicSystem.js';
 import { MinimapSystem } from '../systems/MinimapSystem.js';
-import { getHeight } from '../world/Terrain.js';
+import { MenuManager } from '../systems/MenuManager.js';
+import { getHeight } from '../world/terrain/Terrain.js';
 
 const POTION_HEAL = 3;
 
@@ -55,8 +56,8 @@ dungeonNorth.addPickup('sword', 0, dungeonNorth.endZ,
 dungeonEast.addPickup('amulet', 0, dungeonEast.endZ,
   { id: 'forntida_amulett', name: 'Forntida amulett', icon: '🔮' });
 dungeonDeep.addPickup('bow', -9, -20, { id: 'pilbage', name: 'Jägarens pilbåge', icon: '🏹' });
-dungeonDeep.addPickup('potion', 8, -14, { id: 'lakedryck', name: 'Läkedryck', icon: '🧪' });
-dungeonDeep.addPickup('potion', 9, -22, { id: 'lakedryck', name: 'Läkedryck', icon: '🧪' });
+dungeonDeep.addPickup('potion', 8, -14, { id: 'lakedryck', name: 'Läkedryck', icon: '🧪', usable: true });
+dungeonDeep.addPickup('potion', 9, -22, { id: 'lakedryck', name: 'Läkedryck', icon: '🧪', usable: true });
 dungeonDeep.addPickup('relic', 0, -47, { id: 'gyllene_kalk', name: 'Förgylld kalk', icon: '🏆' });
 
 const dungeons = {
@@ -152,8 +153,7 @@ let bowCooldown = 0;
 
 const arrows = [];
 
-let helpOpen = true;
-controlsEl.style.display = 'block';
+const hintEl = document.getElementById('hint');
 
 function activeSceneFor() {
   return location === 'world' ? world.scene :
@@ -173,6 +173,34 @@ function showMessage(html, seconds = 4) {
   dialogEl.style.display = 'block';
   dialogTimer = seconds;
 }
+
+// Drick en läkedryck. Returnerar true om en flaska förbrukades.
+function drinkPotion() {
+  if (inventory.count('lakedryck') <= 0) return false;
+  if (player.hp >= player.maxHp) {
+    showMessage('Du har redan full hälsa.', 2);
+    return false;
+  }
+  inventory.remove('lakedryck');
+  player.hp = Math.min(player.maxHp, player.hp + POTION_HEAL);
+  updateHud();
+  showMessage('<b>Du dricker en läkedryck och känner dig starkare.</b>', 2);
+  return true;
+}
+
+// Centraliserad menyhantering: bara en meny öppen i taget, Esc stänger,
+// piltangenter + Enter/E i inventoryt använder valt föremål.
+const menus = new MenuManager({
+  inventory,
+  quests,
+  controlsEl,
+  hintEl,
+  onUseItem: (item) => {
+    if (item.id === 'lakedryck') return drinkPotion();
+    showMessage(`${item.icon} ${item.name} går inte att använda så.`, 2);
+    return false;
+  }
+});
 
 function clearArrows() {
   for (const a of arrows) a.scene.remove(a.mesh);
@@ -224,25 +252,12 @@ function handleLootEffect(id) {
 }
 
 window.addEventListener('keydown', e => {
-  if (e.code === 'KeyH') {
-    helpOpen = !helpOpen;
-    controlsEl.style.display = helpOpen ? 'block' : 'none';
-    return;
-  }
+  // När en meny är öppen sköter MenuManager tangenterna (val, Esc osv)
+  if (menus.isOpen()) return;
 
   if (e.code === 'KeyG') { fireArrow(); return; }
 
-  if (e.code === 'KeyR') {
-    if (inventory.count('lakedryck') > 0 && player.hp < player.maxHp) {
-      inventory.remove('lakedryck');
-      player.hp = Math.min(player.maxHp, player.hp + POTION_HEAL);
-      updateHud();
-      showMessage('<b>Du dricker en läkedryck och känner dig starkare.</b>', 2);
-    } else if (inventory.count('lakedryck') > 0) {
-      showMessage('Du har redan full hälsa.', 2);
-    }
-    return;
-  }
+  if (e.code === 'KeyR') { drinkPotion(); return; }
 
   if (e.code !== 'KeyE') return;
 
@@ -273,9 +288,9 @@ window.addEventListener('keydown', e => {
 
   } else if (location === 'house' && nearPotion) {
     currentHouse.takePotion();
-    inventory.add({ id: 'lakedryck', name: 'Läkedryck', icon: '🧪' });
+    inventory.add({ id: 'lakedryck', name: 'Läkedryck', icon: '🧪', usable: true });
     updateHud();
-    showMessage('<b>Du tog en läkedryck!</b> Tryck R för att dricka den när du är skadad.', 5);
+    showMessage('<b>Du tog en läkedryck!</b> Tryck R, eller öppna inventoryt (I) och välj den.', 5);
 
   } else if (dungeons[location] && nearPickupObj) {
     const pk = nearPickupObj;
@@ -346,6 +361,8 @@ function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
   if (bowCooldown > 0) bowCooldown -= delta;
+
+  player.setInputEnabled(!menus.isOpen());
 
   player.update(delta);
   activeNPC = null;
