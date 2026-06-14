@@ -4,6 +4,7 @@ import { addTree, addFlower, addSunflower } from './props/vegetation.js';
 import { addHouse, addManor, addTowerHouse } from './props/houses.js';
 import { addCave } from './props/caves.js';
 import { addShootingRange } from './props/shootingRange.js';
+import { TREE_POSITIONS } from '../content/treePositions.js';
 
 export class WorldScene {
   constructor() {
@@ -66,13 +67,10 @@ export class WorldScene {
     addSunflower(this.scene, -7.5, -55, 0.85);
     addSunflower(this.scene,  7.5, -55, 0.9);
 
-    for (let i = 0; i < 40; i++) {
-      addTree(
-        this.scene,
-        this.colliders,
-        (Math.random() - 0.5) * 350,
-        (Math.random() - 0.5) * 350
-      );
+    // Fasta trädpositioner (se content/treePositions.js): samma varje start och
+    // garanterat utanför byggnaders uteslutningszoner.
+    for (const t of TREE_POSITIONS) {
+      addTree(this.scene, this.colliders, t.x, t.z);
     }
 
     addCave(this.scene, this.caves, 10, -120);

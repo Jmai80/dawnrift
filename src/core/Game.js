@@ -79,7 +79,7 @@ let potionUnlocked = false;
 let hasBow = false;
 let bowCooldown = 0;
 let bullseyeHits = 0;     // träffar i mitten på skyttebanan (questen Pricksäkerhet)
-let gold = 1200;          // guldmynt – startkapital så handeln går att prova direkt
+let gold = 0;          // starta med noll
 let strengthBought = false; // den stärkande potionen är en engångs-permanent uppgradering
 const arrows = [];
 
@@ -138,6 +138,28 @@ function applyStrengthBoost() {
   player.speed = STRENGTH_SPEED;
   player.jumpSpeed = STRENGTH_JUMP;
   strengthBought = true;
+}
+
+// Skjutförmåga: varje pricksäker träff vidgar tavlans EFFEKTIVA mitt en aning,
+// så att allt snävare missar räknas som prick (upp till ett tak). Basvärdet
+// 0.28 sätts i shootingRange.js; vi växer world.archeryTarget.bullseyeRadius.
+const BULLSEYE_RADIUS_STEP = 0.16;
+const BULLSEYE_RADIUS_MAX = 0.85; // strax under inre röda ringen (0.92) – lite skicklighet kvar
+function growAccuracy() {
+  const t = world.archeryTarget;
+  if (!t || t.bullseyeRadius >= BULLSEYE_RADIUS_MAX) return false;
+  t.bullseyeRadius = Math.min(BULLSEYE_RADIUS_MAX, t.bullseyeRadius + BULLSEYE_RADIUS_STEP);
+  return true;
+}
+
+// Liten hjälp för "milstolpe-uppdrag": lägg till och slutför direkt, så viktiga
+// steg (besökt handelsboden, köpt styrkedrycken, bärgat reliken …) syns i
+// uppdragsloggen som avklarade. Idempotent – gör inget om den redan är klar.
+function milestone(id, title, text) {
+  if (quests.isComplete(id)) return false;
+  quests.add({ id, title, text });
+  quests.complete(id);
+  return true;
 }
 
 // Drick en läkedryck. Returnerar true om en flaska förbrukades.
@@ -329,6 +351,7 @@ const shop = {
       if (gold < r.price) { showMessage('Du har inte råd med styrkedrycken.', 2.5); return; }
       gold -= r.price;
       applyStrengthBoost();
+      milestone('kop_styrkedryck', 'Styrkans gåva', 'Köp den stärkande styrkedrycken i handelsboden.');
       showMessage('<b>Du dricker styrkedrycken!</b> Du känner dig snabbare och spänstigare — för alltid.', 5);
       return;
     }
@@ -463,7 +486,13 @@ function talkTo(npc) {
 function talkToArcher() {
   let msg;
   if (!hasBow) {
-    msg = 'Skjutbanan är till för bågskyttar. Hitta en pilbåge först, så lär jag dig att sikta.';
+    if (!quests.has('hitta_pilbagen')) {
+      quests.add({
+        id: 'hitta_pilbagen', title: 'Jägarens pilbåge',
+        text: 'Sägs vila djupt nere i djupgrottan i sydväst.'
+      });
+    }
+    msg = 'Skjutbanan är till för bågskyttar. Bärga Jägarens pilbåge ur djupgrottan i sydväst, så lär jag dig att sikta.';
   } else if (quests.isComplete('pricksakerhet')) {
     msg = 'Mästerligt skjutet! Banan står öppen om du vill öva mer.';
   } else {
@@ -480,16 +509,22 @@ function talkToArcher() {
 }
 
 function registerBullseye() {
+  // Varje pricksäker träff skärper skjutförmågan (vidgar effektiva mitten).
+  const improved = growAccuracy();
+
   if (!quests.isActive('pricksakerhet')) {
-    showMessage('<b>Mitt i prick!</b>', 1.5);
+    // Utanför questen (innan den startats eller efter att den klarats): träffen
+    // räknas fortfarande som skickleighetsträning så länge taket inte nåtts.
+    const tail = improved ? ' Din pricksäkerhet skärps.' : '';
+    showMessage('<b>Mitt i prick!</b>' + tail, 1.5);
     return;
   }
   bullseyeHits++;
   if (bullseyeHits >= 3) {
     quests.complete('pricksakerhet');
-    showMessage('<b>Mitt i prick — 3/3!</b> Pricksäkerheten är bemästrad. Bryn nickar imponerat.', 4);
+    showMessage('<b>Mitt i prick — 3/3!</b> Pricksäkerheten är bemästrad — nu räknas även nära skott som prick. Bryn nickar imponerat.', 5);
   } else {
-    showMessage(`<b>Mitt i prick!</b> ${bullseyeHits}/3`, 2);
+    showMessage(`<b>Mitt i prick!</b> ${bullseyeHits}/3 — pricksäkerheten skärps.`, 2);
   }
 }
 
@@ -530,10 +565,16 @@ function handleLootEffect(id) {
     hasBow = true;
     giveArrows(15);
     updateHud();
+    // Slutför bågquesten (lägg till + slutför, så den syns även om spelaren
+    // aldrig pratat med Bryn först – samma mönster som svärdet).
+    quests.add({ id: 'hitta_pilbagen', title: 'Jägarens pilbåge', text: 'Sägs vila djupt nere i djupgrottan i sydväst.' });
+    quests.complete('hitta_pilbagen');
     showMessage('<b>Du fick Jägarens pilbåge!</b> Du har 15 pilar. Tryck G för att skjuta — köp fler hos Bryn.', 5);
   } else if (id === 'lakedryck') {
     showMessage('<b>En läkedryck!</b> Tryck R för att dricka när du är skadad.', 4);
   } else if (id === 'gyllene_kalk') {
+    // Milstolpe: djupgrottans relik bärgad.
+    milestone('djupets_relik', 'Djupets relik', 'Bärga den gyllene kalken ur djupgrottan.');
     showMessage('<b>En förgylld kalk</b> – ett ovärderligt fynd ur djupets mörker.', 5);
   }
 }
@@ -579,6 +620,10 @@ function enterHouse(door) {
   clearArrows();
   currentHouse = house;
   houseReturnDoor = door;
+  // Milstolpe: första besöket i handelsboden (herrgården).
+  if (door.owner === 'manor' && milestone('besok_handelsboden', 'Handelsboden', 'Hitta och besök handelsboden i herrgården.')) {
+    showMessage('<b>Du kliver in i handelsboden.</b> Köpmannen bakom disken nickar mot dig.', 4);
+  }
   currentHouse.scene.add(player.mesh);
   const sp = house.entryPos || { x: 0, z: 2.5 };
   player.teleport(sp.x, sp.z, {
@@ -625,7 +670,11 @@ function tickWorld(delta) {
   const pos = player.mesh.position;
 
   for (const npc of npcs) {
-    if (npc.distanceTo(pos) < 3.5) { activeNPC = npc; npc.faceToward(pos); }
+    if (npc.distanceTo(pos) < 3.5) {
+      activeNPC = npc; npc.faceToward(pos); // nära nog att prata: vänd dig mot spelaren
+    } else if (npc.update) {
+      npc.update(delta);                    // annars: virrig vandring (om NPC:n vandrar)
+    }
   }
   if (activeNPC) {
     interaction = { prompt: 'Tryck E för att prata', act: () => talkTo(activeNPC) };
