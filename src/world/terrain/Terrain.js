@@ -8,7 +8,15 @@ export function getHeight(x, z) {
 
   const dist = Math.sqrt(x * x + z * z);
   const factor = THREE.MathUtils.smoothstep(dist, 30, 90);
-  return h * factor;
+  h *= factor;
+
+  // Platta ut en generös disk runt skyttebanan så HELA banan (stuga, bana,
+  // tavla, kameralägen) ligger djupt i den platta delen, långt från den
+  // lutande kanten. Centrum matchar RANGE.center i props/shootingRange.js.
+  const rd = Math.hypot(x - 78, z + 21);
+  h *= THREE.MathUtils.smoothstep(rd, 24, 44);
+
+  return h;
 }
 
 export function createTerrain() {

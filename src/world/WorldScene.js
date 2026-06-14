@@ -80,7 +80,7 @@ export class WorldScene {
     addCave(this.scene, this.caves, -100, 115);
 
     // Skyttebana öster om tornet, norr om östra grottan (på utplattad mark).
-    this.archeryTarget = addShootingRange(this.scene, this.colliders);
+    this.archeryTarget = addShootingRange(this.scene, this.colliders, this.houseDoors);
   }
 
   addMonument() {

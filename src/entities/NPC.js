@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { getHeight } from '../world/Terrain.js';
+import { getHeight } from '../world/terrain/Terrain.js';
 
 const SKIN = 0xf0c8a0;
 const HAIR = 0x5c4023;

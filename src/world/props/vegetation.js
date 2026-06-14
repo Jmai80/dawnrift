@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { getHeight } from '../Terrain.js';
+import { getHeight } from '../terrain/Terrain.js';
 
 export function addTree(scene, colliders, x, z) {
   const tree = new THREE.Group();

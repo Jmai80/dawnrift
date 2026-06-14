@@ -92,7 +92,9 @@ export function addManor(scene, colliders, houseDoors, mx, mz) {
   );
   door.position.set(mx, groundY + 1.6, mz + half + 0.02);
   scene.add(door);
-  houseDoors.push({ x: mx, z: mz + half, owner: null, locked: true });
+  // Herrgården har nu en interiör (handelsbod). owner: 'manor' kopplar dörren
+  // till ManorShopScene via houses['manor']. Den börjar olåst.
+  houseDoors.push({ x: mx, z: mz + half, owner: 'manor', locked: false });
 
   // --- Fönster ---
   const frameMat = new THREE.MeshLambertMaterial({ color: 0x3a3530 });

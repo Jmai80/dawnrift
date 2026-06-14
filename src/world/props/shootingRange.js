@@ -2,27 +2,49 @@ import * as THREE from 'three';
 import { getHeight } from '../terrain/Terrain.js';
 
 // Skyttebanans nyckelpositioner. Delas av WorldScene (bygger), content/npcs.js
-// (placerar instruktörs-NPC:n) och content/minimapMarkers.js (kartmarkör).
-// Centrum matchar utplattningen i terrain/Terrain.js.
+// (instruktörs-NPC) och content/minimapMarkers.js (kartmarkör). Centrum matchar
+// utplattningen i terrain/Terrain.js. Banan löper längs x = laneX, norrut (-z);
+// stugan står VID SIDAN (väster) så att kameran bakom skytten aldrig hamnar i
+// huset när man siktar mot tavlan i norr.
 export const RANGE = {
-  center: { x: 80, z: -24 },
-  hut: { x: 80, z: -8 },
-  npc: { x: 75, z: -13 },
-  fireLineZ: -14,
-  target: { x: 80, z: -37 },
+  center: { x: 78, z: -21 },
+  hut: { x: 70, z: -10 },
+  npc: { x: 74, z: -11 },
+  laneX: 80,
+  fireLineZ: -12,
+  target: { x: 80, z: -36 },
   laneHalfWidth: 2.4
 };
 
-// Bygger stuga + markerad bana + piltavla. Returnerar tavlans träffdata så att
-// Game.js kan registrera pilträffar mot den i världen.
-export function addShootingRange(scene, colliders) {
+// Lägger en liten låda med BOTTEN på marken vid (x,z) – följer terrängen.
+function groundBox(scene, x, z, w, h, d, mat) {
+  const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  box.position.set(x, getHeight(x, z) + h / 2 + 0.01, z);
+  scene.add(box);
+  return box;
+}
+
+// En markremsa (räls) längs z byggd av markföljande segment, så den ligger
+// rätt mot marken hela vägen även om terrängen skulle luta.
+function addStripe(scene, x, z0, z1, w, h, mat) {
+  const n = Math.max(2, Math.round(Math.abs(z0 - z1) / 1.8));
+  const dz = (z1 - z0) / n;
+  for (let i = 0; i < n; i++) {
+    const zc = z0 + dz * (i + 0.5);
+    groundBox(scene, x, zc, w, h, Math.abs(dz) + 0.03, mat);
+  }
+}
+
+// Bygger stuga + markerad bana + piltavla. Returnerar tavlans träffdata.
+export function addShootingRange(scene, colliders, houseDoors) {
   const wood = new THREE.MeshLambertMaterial({ color: 0x6b4f30 });
   const darkWood = new THREE.MeshLambertMaterial({ color: 0x4a3722 });
   const roofMat = new THREE.MeshLambertMaterial({ color: 0x5a3a2a });
   const laneMat = new THREE.MeshLambertMaterial({ color: 0xe6d2a8 });
-  const cx = RANGE.center.x;
 
-  // --- liten stuga vid banans södra ände ---
+  const laneX = RANGE.laneX;
+
+  // --- liten stuga vid sidan (väster om skjutlinjen) ---
   const hx = RANGE.hut.x, hz = RANGE.hut.z;
   const hy = getHeight(hx, hz);
   const hut = new THREE.Group();
@@ -34,37 +56,24 @@ export function addShootingRange(scene, colliders) {
   roof.position.y = 4.2;
   roof.rotation.y = Math.PI / 4;
   roof.castShadow = true;
-  const door = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 2.1), darkWood);
-  door.position.set(0, 1.05, -2.02); // mot banan (-z)
-  door.rotation.y = Math.PI;
+  const door = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 2.1),
+    new THREE.MeshLambertMaterial({ color: 0x3a2a1a }));
+  door.position.set(0, 1.05, 2.02); // söderväggen (+z), mot byn/spelaren
   hut.add(walls, roof, door);
   hut.position.set(hx, hy, hz);
   scene.add(hut);
   colliders.push({ x: hx, z: hz, radius: 3.0 });
+  // Ingångsbar: dörren leder till butiken (houses['rangeshop'] i Game.js).
+  houseDoors.push({ x: hx, z: hz + 2, owner: 'rangeshop', locked: false });
 
-  // --- markerad bana: kantremsor + skjutlinje + avståndsstreck ---
-  const laneZ0 = RANGE.fireLineZ;        // skjutlinje
-  const laneZ1 = RANGE.target.z + 1.5;   // strax framför tavlan
-  const laneLen = laneZ0 - laneZ1;
-  const laneMidZ = (laneZ0 + laneZ1) / 2;
-  const groundAt = z => getHeight(cx, z);
-
-  for (const side of [-1, 1]) {
-    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, laneLen), darkWood);
-    edge.position.set(cx + side * RANGE.laneHalfWidth, groundAt(laneMidZ) + 0.05, laneMidZ);
-    scene.add(edge);
-  }
-  const fireLine = new THREE.Mesh(
-    new THREE.BoxGeometry(RANGE.laneHalfWidth * 2, 0.1, 0.22), laneMat
-  );
-  fireLine.position.set(cx, groundAt(laneZ0) + 0.05, laneZ0);
-  scene.add(fireLine);
-  for (let z = laneZ0 - 5; z > laneZ1; z -= 5) {
-    const mark = new THREE.Mesh(
-      new THREE.BoxGeometry(RANGE.laneHalfWidth * 2, 0.08, 0.14), laneMat
-    );
-    mark.position.set(cx, groundAt(z) + 0.04, z);
-    scene.add(mark);
+  // --- markerad bana: två markföljande kantremsor + skjutlinje + avståndsstreck ---
+  const z0 = RANGE.fireLineZ;        // skjutlinje
+  const z1 = RANGE.target.z + 1.5;   // strax framför tavlan
+  addStripe(scene, laneX - RANGE.laneHalfWidth, z0, z1, 0.16, 0.1, darkWood);
+  addStripe(scene, laneX + RANGE.laneHalfWidth, z0, z1, 0.16, 0.1, darkWood);
+  groundBox(scene, laneX, z0, RANGE.laneHalfWidth * 2, 0.1, 0.22, laneMat); // skjutlinje
+  for (let z = z0 - 5; z > z1; z -= 5) {
+    groundBox(scene, laneX, z, RANGE.laneHalfWidth * 2, 0.08, 0.14, laneMat);
   }
 
   // --- piltavla (halmtavla med röda/vita ringar) vid norra änden ---
@@ -76,12 +85,11 @@ export function addShootingRange(scene, colliders) {
   for (const sx of [-0.8, 0.8]) {
     const leg = new THREE.Mesh(new THREE.BoxGeometry(0.13, centerY + 0.9, 0.13), darkWood);
     leg.position.set(sx, (centerY + 0.9) / 2, 0.05);
-    leg.rotation.z = sx > 0 ? -0.08 : 0.08; // lätt isärspretande stativ
+    leg.rotation.z = sx > 0 ? -0.08 : 0.08;
     leg.castShadow = true;
     target.add(leg);
   }
 
-  // halmskiva som baksida, vänd mot skytten (+z)
   const straw = new THREE.Mesh(
     new THREE.CylinderGeometry(1.35, 1.35, 0.28, 28),
     new THREE.MeshLambertMaterial({ color: 0xc9a24a })
@@ -91,7 +99,6 @@ export function addShootingRange(scene, colliders) {
   straw.castShadow = true;
   target.add(straw);
 
-  // ringar utifrån och in, växlande vitt/rött, röd prick i mitten
   const rings = [
     { r: 1.18, c: 0xf4f1ea },
     { r: 0.92, c: 0xc62f2f },
@@ -104,7 +111,7 @@ export function addShootingRange(scene, colliders) {
       new THREE.CircleGeometry(ring.r, 28),
       new THREE.MeshLambertMaterial({ color: ring.c })
     );
-    disc.position.set(0, centerY, 0.15 + i * 0.004); // CircleGeometry vänder mot +z
+    disc.position.set(0, centerY, 0.15 + i * 0.004); // CircleGeometry vänder mot +z (skytten)
     target.add(disc);
   });
 

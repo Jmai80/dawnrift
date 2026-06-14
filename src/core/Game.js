@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { WorldScene } from '../world/WorldScene.js';
 import { HouseScene } from '../world/HouseScene.js';
 import { TowerScene } from '../world/TowerScene.js';
+import { RangeShopScene } from '../world/RangeShopScene.js';
+import { ManorShopScene } from '../world/ManorShopScene.js';
 import { Player } from '../entities/Player.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { QuestSystem } from '../systems/QuestSystem.js';
@@ -39,7 +41,9 @@ player.mesh.traverse(o => { if (o.isMesh) o.castShadow = true; });
 const houses = {
   elda: new HouseScene({ owner: 'elda' }),
   torvald: new HouseScene({ owner: 'torvald' }),
-  tower: new TowerScene()
+  tower: new TowerScene(),
+  rangeshop: new RangeShopScene(),
+  manor: new ManorShopScene()
 };
 
 // --- innehåll (data i src/content/) ---
@@ -62,6 +66,7 @@ const dialogEl = document.getElementById('dialog');
 const hudEl = document.getElementById('hud');
 const controlsEl = document.getElementById('controls');
 const hintEl = document.getElementById('hint');
+const shopEl = document.getElementById('shop');
 
 // --- föränderligt speltillstånd ---
 let activeNPC = null;
@@ -74,6 +79,8 @@ let potionUnlocked = false;
 let hasBow = false;
 let bowCooldown = 0;
 let bullseyeHits = 0;     // träffar i mitten på skyttebanan (questen Pricksäkerhet)
+let gold = 1200;          // guldmynt – startkapital så handeln går att prova direkt
+let strengthBought = false; // den stärkande potionen är en engångs-permanent uppgradering
 const arrows = [];
 
 // --- scen-/HUD-hjälpare ---
@@ -86,9 +93,25 @@ function activeSceneFor() {
 function updateHud() {
   const hearts = '❤'.repeat(player.hp) + '♡'.repeat(player.maxHp - player.hp);
   const pots = inventory.count('lakedryck');
-  hudEl.innerHTML = hearts + (pots > 0 ? `  <span style="color:#e88">🧪 ×${pots}</span>` : '');
+  const arrowsN = inventory.count('pil');
+  hudEl.innerHTML = hearts +
+    (pots > 0 ? `  <span style="color:#e88">🧪 ×${pots}</span>` : '') +
+    (hasBow ? `  <span style="color:#dca">➳ ×${arrowsN}</span>` : '') +
+    `  <span style="color:#e8c349">🪙 ${gold}</span>`;
 }
 updateHud();
+
+// Lägg n pilar i inventoryt (pilar är en räknad resurs som bågen förbrukar).
+function giveArrows(n) {
+  for (let i = 0; i < n; i++) inventory.add({ id: 'pil', name: 'Pilar', icon: '➳' });
+}
+
+// Köp pilar i Bryns butik. Gratis tills vidare – vi har inga mynt än.
+function buyArrows() {
+  giveArrows(10);
+  updateHud();
+  showMessage('<b>Du köpte 10 pilar.</b> Gratis tills vidare — vi har inga mynt än.', 3);
+}
 
 function showMessage(html, seconds = 4) {
   dialogEl.innerHTML = html;
@@ -105,6 +128,16 @@ function closeDialog() {
     return true;
   }
   return false;
+}
+
+// Den stärkande potionen ger en PERMANENT uppgradering: spelaren går fortare
+// och hoppar högre. Effekten är dyr och kan bara köpas en gång.
+const STRENGTH_SPEED = 12;     // upp från standard 8
+const STRENGTH_JUMP = 13;      // upp från standard 10
+function applyStrengthBoost() {
+  player.speed = STRENGTH_SPEED;
+  player.jumpSpeed = STRENGTH_JUMP;
+  strengthBought = true;
 }
 
 // Drick en läkedryck. Returnerar true om en flaska förbrukades.
@@ -136,6 +169,203 @@ const menus = new MenuManager({
   closeDialog
 });
 
+// --- handelsbod (herrgården) -------------------------------------------------
+// En egen köp-/sälj-meny. Den lånar samma överlagrings-stil som de andra
+// menyerna men har egen tangenthantering: när den är öppen pausas spelaren och
+// MenuManager hålls stängd (Game.js huvud-keydown kollar shop.isOpen() också).
+//
+// Köpkatalog: läkedryck (billig, läker) och en stärkande potion (dyr,
+// permanent fart-/hopp-uppgradering, kan bara köpas en gång).
+// Säljkatalog: byggs ur inventoryt – allt med ett definierat säljpris.
+const PRICES = {
+  buy: {
+    lakedryck: 35,
+    styrkedryck: 1000
+  },
+  sell: {
+    lakedryck: 15,
+    rostigt_svard: 40,
+    forntida_amulett: 120,
+    gyllene_kalk: 250,
+    pil: 1
+  }
+};
+
+const ITEM_META = {
+  lakedryck:        { name: 'Läkedryck', icon: '🧪' },
+  styrkedryck:      { name: 'Styrkedryck', icon: '🟢' },
+  rostigt_svard:    { name: 'Rostigt svärd', icon: '🗡️' },
+  forntida_amulett: { name: 'Forntida amulett', icon: '📿' },
+  gyllene_kalk:     { name: 'Gyllene kalk', icon: '🏆' },
+  pil:              { name: 'Pilar', icon: '➳' }
+};
+
+const shop = {
+  open: false,
+  selected: 0,
+  rows: [],
+
+  isOpen() { return this.open; },
+
+  // Bygg den platta listan av rader (köp först, sedan sälj) som menyn navigerar.
+  buildRows() {
+    const rows = [];
+    rows.push({ type: 'header', label: 'KÖP' });
+    // Läkedryck – alltid köpbar
+    rows.push({
+      type: 'buy', id: 'lakedryck',
+      price: PRICES.buy.lakedryck,
+      enabled: gold >= PRICES.buy.lakedryck
+    });
+    // Styrkedryck – dyr engångsuppgradering
+    rows.push({
+      type: 'buy', id: 'styrkedryck',
+      price: PRICES.buy.styrkedryck,
+      enabled: !strengthBought && gold >= PRICES.buy.styrkedryck,
+      bought: strengthBought
+    });
+
+    // Säljbart ur inventoryt (grupperat), allt som har ett säljpris
+    const sellable = inventory.groupedItems().filter(g => PRICES.sell[g.id] != null);
+    rows.push({ type: 'header', label: 'SÄLJ' });
+    if (sellable.length === 0) {
+      rows.push({ type: 'empty', label: 'Inget att sälja' });
+    } else {
+      for (const g of sellable) {
+        rows.push({
+          type: 'sell', id: g.id, n: g.n,
+          price: PRICES.sell[g.id], enabled: true
+        });
+      }
+    }
+    this.rows = rows;
+  },
+
+  // Index över valbara (icke-header) rader, för piltangentsnavigering.
+  selectableIndices() {
+    const out = [];
+    this.rows.forEach((r, i) => {
+      if (r.type === 'buy' || r.type === 'sell') out.push(i);
+    });
+    return out;
+  },
+
+  show() {
+    this.open = true;
+    menus.closeAll(true);          // garantera att ingen annan meny är öppen
+    closeDialog();
+    this.buildRows();
+    // Markera första valbara raden
+    const sel = this.selectableIndices();
+    this.selected = sel.length ? sel[0] : 0;
+    this.render();
+    shopEl.style.display = 'block';
+  },
+
+  hide() {
+    this.open = false;
+    shopEl.style.display = 'none';
+  },
+
+  render() {
+    let body = `<h3>Handelsbod</h3>`;
+    body += `<div style="text-align:center;margin-bottom:6px">Din pung: <span class="gold">🪙 ${gold}</span></div>`;
+    this.rows.forEach((r, i) => {
+      if (r.type === 'header') {
+        body += `<div class="sect">${r.label}</div>`;
+        return;
+      }
+      if (r.type === 'empty') {
+        body += `<div class="shoprow disabled"><span class="arrow"></span><span class="nm"><em>${r.label}</em></span></div>`;
+        return;
+      }
+      const meta = ITEM_META[r.id] || { name: r.id, icon: '•' };
+      const isSel = i === this.selected;
+      const cls = 'shoprow' + (isSel ? ' sel' : '') + (r.enabled ? '' : ' disabled');
+      const arrow = isSel ? '➤' : '';
+      let label = `${meta.icon} ${meta.name}`;
+      if (r.type === 'sell' && r.n > 1) label += ` ×${r.n}`;
+      if (r.type === 'buy' && r.bought) label += ' (köpt)';
+      const prCls = r.type === 'sell' ? 'pr sell' : 'pr';
+      const prSign = r.type === 'sell' ? '+' : '';
+      body += `<div class="${cls}">` +
+        `<span class="arrow">${arrow}</span>` +
+        `<span class="nm">${label}</span>` +
+        `<span class="${prCls}">${prSign}🪙 ${r.price}</span>` +
+        `</div>`;
+    });
+    body += `<p>↑/↓ välj · Enter/E köp/sälj · Esc stäng</p>`;
+    shopEl.innerHTML = body;
+  },
+
+  move(dir) {
+    const sel = this.selectableIndices();
+    if (!sel.length) return;
+    let pos = sel.indexOf(this.selected);
+    if (pos === -1) pos = 0;
+    pos = (pos + dir + sel.length) % sel.length;
+    this.selected = sel[pos];
+    this.render();
+  },
+
+  confirm() {
+    const r = this.rows[this.selected];
+    if (!r || (r.type !== 'buy' && r.type !== 'sell')) return;
+    if (r.type === 'buy') this.buy(r);
+    else this.sell(r);
+    // Bygg om (priser/lager/guld kan ha ändrats) och behåll markeringen rimlig
+    const prevId = r.id;
+    this.buildRows();
+    const match = this.rows.findIndex(x => (x.type === 'buy' || x.type === 'sell') && x.id === prevId);
+    const sel = this.selectableIndices();
+    this.selected = match !== -1 ? match : (sel.length ? sel[0] : 0);
+    this.render();
+    updateHud();
+  },
+
+  buy(r) {
+    if (r.id === 'styrkedryck') {
+      if (strengthBought) { showMessage('Du har redan druckit styrkedrycken.', 2.5); return; }
+      if (gold < r.price) { showMessage('Du har inte råd med styrkedrycken.', 2.5); return; }
+      gold -= r.price;
+      applyStrengthBoost();
+      showMessage('<b>Du dricker styrkedrycken!</b> Du känner dig snabbare och spänstigare — för alltid.', 5);
+      return;
+    }
+    if (r.id === 'lakedryck') {
+      if (gold < r.price) { showMessage('Du har inte råd med en läkedryck.', 2.5); return; }
+      gold -= r.price;
+      inventory.add({ id: 'lakedryck', name: 'Läkedryck', icon: '🧪', usable: true });
+      showMessage('<b>Du köpte en läkedryck.</b>', 2.5);
+    }
+  },
+
+  sell(r) {
+    if (inventory.count(r.id) <= 0) return;
+    inventory.remove(r.id);
+    gold += r.price;
+    const meta = ITEM_META[r.id] || { name: r.id };
+    showMessage(`<b>Du sålde ${meta.name}</b> för 🪙 ${r.price}.`, 2.5);
+  },
+
+  handleKey(e) {
+    if (!this.open) return false;
+    if (e.code === 'Escape') { e.preventDefault(); this.hide(); return true; }
+    if (e.code === 'ArrowUp')   { e.preventDefault(); this.move(-1); return true; }
+    if (e.code === 'ArrowDown') { e.preventDefault(); this.move(1);  return true; }
+    if (e.code === 'Enter' || e.code === 'KeyE') { e.preventDefault(); this.confirm(); return true; }
+    // Svälj övriga tangenter medan boden är öppen så de inte läcker till spelet
+    return true;
+  }
+};
+
+// Handelsboden får första tjing på tangenter när den är öppen (capture-fas),
+// före både MenuManager och Game.js egna lyssnare. stopImmediatePropagation
+// hindrar de andra keydown-lyssnarna (MenuManager, Player) från att också reagera.
+window.addEventListener('keydown', e => {
+  if (shop.isOpen()) { shop.handleKey(e); e.stopImmediatePropagation(); }
+}, true);
+
 // --- pilar ---
 function clearArrows() {
   for (const a of arrows) a.scene.remove(a.mesh);
@@ -144,7 +374,13 @@ function clearArrows() {
 
 function fireArrow() {
   if (!hasBow || bowCooldown > 0) return;
+  if (inventory.count('pil') <= 0) {
+    showMessage('Du har inga pilar kvar — köp fler hos Bryn på skyttebanan.', 2.5);
+    return;
+  }
   bowCooldown = 0.55;
+  inventory.remove('pil');
+  updateHud();
   const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(player.mesh.quaternion);
   const start = player.mesh.position.clone()
     .add(new THREE.Vector3(0, 1.0, 0))
@@ -292,7 +528,9 @@ function handleLootEffect(id) {
     showMessage('<b>Du fann den forntida amuletten!</b> Grottan i öster är avklarad.', 5);
   } else if (id === 'pilbage') {
     hasBow = true;
-    showMessage('<b>Du fick Jägarens pilbåge!</b> Tryck G för att avfyra pilar.', 5);
+    giveArrows(15);
+    updateHud();
+    showMessage('<b>Du fick Jägarens pilbåge!</b> Du har 15 pilar. Tryck G för att skjuta — köp fler hos Bryn.', 5);
   } else if (id === 'lakedryck') {
     showMessage('<b>En läkedryck!</b> Tryck R för att dricka när du är skadad.', 4);
   } else if (id === 'gyllene_kalk') {
@@ -302,6 +540,8 @@ function handleLootEffect(id) {
 
 // --- input ---
 window.addEventListener('keydown', e => {
+  // Handelsboden äger tangenterna helt när den är öppen (egen lyssnare i capture-fas)
+  if (shop.isOpen()) return;
   // När en meny är öppen sköter MenuManager tangenterna (val, Esc osv)
   if (menus.isOpen()) return;
   if (e.code === 'KeyG') { fireArrow(); return; }
@@ -438,6 +678,12 @@ function tickHouseInterior(delta) {
     interaction = { prompt: 'Tryck E för att läsa boken', act: () => showMessage(currentHouse.bookText, 8) };
   } else if (showPotion) {
     interaction = { prompt: 'Tryck E för att plocka upp flaskan', act: takePotionFromHouse };
+  } else if (currentHouse.shopPos && pos.distanceTo(currentHouse.shopPos) < 2.8) {
+    if (currentHouse === houses.manor) {
+      interaction = { prompt: 'Tryck E för att handla (köp / sälj)', act: () => shop.show() };
+    } else {
+      interaction = { prompt: 'Tryck E för att köpa 10 pilar (gratis)', act: buyArrows };
+    }
   }
 
   if (pos.distanceTo(currentHouse.exitPos) < 1.0) exitHouse();
@@ -492,7 +738,7 @@ function animate() {
   const delta = clock.getDelta();
   if (bowCooldown > 0) bowCooldown -= delta;
 
-  player.setInputEnabled(!menus.isOpen());
+  player.setInputEnabled(!menus.isOpen() && !shop.isOpen());
   player.update(delta);
 
   activeNPC = null;

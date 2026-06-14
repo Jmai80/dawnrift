@@ -7,7 +7,7 @@
     body { margin: 0; overflow: hidden; background: #000; }
     canvas { display: block; }
 
-    #prompt, #dialog, #inventory, #questlog, #controls {
+    #prompt, #dialog, #inventory, #questlog, #controls, #shop {
       position: fixed;
       left: 50%;
       transform: translateX(-50%);
@@ -22,16 +22,31 @@
     #prompt { bottom: 120px; font-size: 14px; }
     #dialog { bottom: 40px; font-size: 17px; max-width: 600px; }
 
-    #inventory, #questlog, #controls {
+    #inventory, #questlog, #controls, #shop {
       top: 50%;
       transform: translate(-50%, -50%);
       min-width: 280px;
       font-size: 16px;
     }
-    #inventory h3, #questlog h3, #controls h3 { margin: 0 0 10px; color: #b89b5e; }
+    #inventory h3, #questlog h3, #controls h3, #shop h3 { margin: 0 0 10px; color: #b89b5e; }
     #inventory div, #questlog div { padding: 5px 0; }
     #questlog .done { color: #8a8; }
     #questlog small { color: #ccb; }
+
+    #shop { min-width: 420px; max-width: 460px; }
+    #shop .gold { color: #e8c349; font-weight: bold; }
+    #shop .shoprow {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 8px; border-radius: 4px;
+    }
+    #shop .shoprow.sel { background: rgba(184,155,94,0.30); }
+    #shop .shoprow .nm { flex: 1; }
+    #shop .shoprow .pr { color: #e8c349; font-family: monospace; white-space: nowrap; }
+    #shop .shoprow .pr.sell { color: #9fd0a0; }
+    #shop .arrow { width: 16px; color: #e8d8a8; }
+    #shop .sect { color: #b89b5e; margin: 10px 0 4px; font-size: 13px; letter-spacing: 0.04em; }
+    #shop .disabled { opacity: 0.45; }
+    #shop p { text-align: center; margin: 12px 0 0; color: #ccb; font-size: 13px; }
 
     #controls { min-width: 340px; }
     #controls table { border-collapse: collapse; width: 100%; }
@@ -72,6 +87,7 @@
   <div id="dialog"></div>
   <div id="inventory"></div>
   <div id="questlog"></div>
+  <div id="shop"></div>
 
   <div id="controls">
     <h3>Dawnrift — Kontroller</h3>
