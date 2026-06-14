@@ -2,12 +2,13 @@
 // bara EN kan vara öppen i taget, Escape stänger den öppna, och inventoryt
 // kan navigeras med piltangenter + Enter/E för att använda valt föremål.
 export class MenuManager {
-  constructor({ inventory, quests, controlsEl, hintEl, onUseItem }) {
+  constructor({ inventory, quests, controlsEl, hintEl, onUseItem, closeDialog }) {
     this.inventory = inventory;
     this.quests = quests;
     this.controlsEl = controlsEl;
     this.hintEl = hintEl;
     this.onUseItem = onUseItem; // (item) => boolean  (true om föremålet förbrukades)
+    this.closeDialog = closeDialog || null; // () => boolean (true om en ruta stängdes)
 
     this.current = null;        // 'inventory' | 'quests' | 'controls' | null
     this.selected = 0;          // markerat index i inventoryt
@@ -56,9 +57,10 @@ export class MenuManager {
   }
 
   handleKey(e) {
-    // Escape stänger alltid den öppna menyn
+    // Escape stänger den öppna menyn först; annars en öppen meddelanderuta (t.ex. bokens text)
     if (e.code === 'Escape') {
       if (this.isOpen()) { e.preventDefault(); this.closeAll(); }
+      else if (this.closeDialog && this.closeDialog()) { e.preventDefault(); }
       return;
     }
 

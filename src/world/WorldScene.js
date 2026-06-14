@@ -3,6 +3,7 @@ import { getHeight, createTerrain } from './terrain/Terrain.js';
 import { addTree, addFlower, addSunflower } from './props/vegetation.js';
 import { addHouse, addManor, addTowerHouse } from './props/houses.js';
 import { addCave } from './props/caves.js';
+import { addShootingRange } from './props/shootingRange.js';
 
 export class WorldScene {
   constructor() {
@@ -77,6 +78,9 @@ export class WorldScene {
     addCave(this.scene, this.caves, 10, -120);
     addCave(this.scene, this.caves, 140, 10);
     addCave(this.scene, this.caves, -100, 115);
+
+    // Skyttebana öster om tornet, norr om östra grottan (på utplattad mark).
+    this.archeryTarget = addShootingRange(this.scene, this.colliders);
   }
 
   addMonument() {

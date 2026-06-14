@@ -1,41 +1,34 @@
 import * as THREE from 'three';
 import { WorldScene } from '../world/WorldScene.js';
-import { DungeonScene } from '../world/DungeonScene.js';
 import { HouseScene } from '../world/HouseScene.js';
 import { TowerScene } from '../world/TowerScene.js';
 import { Player } from '../entities/Player.js';
-import { NPC } from '../entities/NPC.js';
-import { Enemy } from '../entities/Enemy.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { QuestSystem } from '../systems/QuestSystem.js';
 import { MusicSystem } from '../systems/MusicSystem.js';
 import { MinimapSystem } from '../systems/MinimapSystem.js';
 import { MenuManager } from '../systems/MenuManager.js';
 import { getHeight } from '../world/terrain/Terrain.js';
+import { createDungeons } from '../content/dungeons.js';
+import { createNPCs } from '../content/npcs.js';
+import { buildMinimapMarkers } from '../content/minimapMarkers.js';
 
 const POTION_HEAL = 3;
 
+// --- renderare ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
+// --- kärnobjekt ---
 const world = new WorldScene();
 const player = new Player(world.scene, world.colliders);
 const inventory = new InventorySystem();
 const quests = new QuestSystem();
 const minimap = new MinimapSystem();
-
-minimap.setMarkers([
-  { x: world.caves[0].x, z: world.caves[0].z, color: '#5ad8ff' },
-  { x: world.caves[1].x, z: world.caves[1].z, color: '#c07cff' },
-  { x: world.caves[2].x, z: world.caves[2].z, color: '#ff8855' },
-  { x: 0, z: 0, color: '#ffe08a' },
-  { x: 15, z: -20, color: '#caa46a' },
-  { x: -25, z: 10, color: '#caa46a' },
-  { x: 30, z: 25, color: '#caa46a' }
-]);
+minimap.setMarkers(buildMinimapMarkers(world));
 
 const music = new MusicSystem();
 music.add('world', '/audio/world-theme.mp3');
@@ -49,114 +42,41 @@ const houses = {
   tower: new TowerScene()
 };
 
-const dungeonNorth = new DungeonScene({ length: 60 });
-const dungeonEast = new DungeonScene({ length: 80 });
-const dungeonDeep = new DungeonScene({ layout: 'complex', bg: 0x070510 });
+// --- innehåll (data i src/content/) ---
+const dungeons = createDungeons(world);
+const { elda, torvald, bryn, npcs } = createNPCs(world);
 
-dungeonNorth.addPickup('sword', 0, dungeonNorth.endZ,
-  { id: 'rostigt_svard', name: 'Torvalds farfars svärd', icon: '🗡️' });
-dungeonEast.addPickup('amulet', 0, dungeonEast.endZ,
-  { id: 'forntida_amulett', name: 'Forntida amulett', icon: '🔮' });
-dungeonDeep.addPickup('bow', -9, -20, { id: 'pilbage', name: 'Jägarens pilbåge', icon: '🏹' });
-dungeonDeep.addPickup('potion', 8, -14, { id: 'lakedryck', name: 'Läkedryck', icon: '🧪', usable: true });
-dungeonDeep.addPickup('potion', 9, -22, { id: 'lakedryck', name: 'Läkedryck', icon: '🧪', usable: true });
-dungeonDeep.addPickup('relic', 0, -47, { id: 'gyllene_kalk', name: 'Förgylld kalk', icon: '🏆' });
-
-const dungeons = {
-  north: {
-    sceneObj: dungeonNorth,
-    entrance: world.caves[0],
-    enemies: [new Enemy(dungeonNorth.scene, {
-      x: 0, z: -42, colliders: dungeonNorth.colliders, bounds: dungeonNorth.bounds
-    })]
-  },
-  east: {
-    sceneObj: dungeonEast,
-    entrance: world.caves[1],
-    enemies: [
-      new Enemy(dungeonEast.scene, {
-        x: -2, z: -35, colliders: dungeonEast.colliders, bounds: dungeonEast.bounds
-      }),
-      new Enemy(dungeonEast.scene, {
-        x: 0, z: -62, name: 'Grottans väktare', hp: 6, speed: 2.4, scale: 1.5,
-        color: 0x4a1a5a, colliders: dungeonEast.colliders, bounds: dungeonEast.bounds
-      })
-    ]
-  },
-  deep: {
-    sceneObj: dungeonDeep,
-    entrance: world.caves[2],
-    enemies: [
-      new Enemy(dungeonDeep.scene, {
-        x: -9, z: -25, name: 'Skuggvätte', hp: 3, speed: 2.2,
-        colliders: dungeonDeep.colliders, bounds: dungeonDeep.bounds
-      }),
-      new Enemy(dungeonDeep.scene, {
-        x: 8, z: -25, name: 'Skuggvätte', hp: 3, speed: 2.2,
-        colliders: dungeonDeep.colliders, bounds: dungeonDeep.bounds
-      }),
-      new Enemy(dungeonDeep.scene, {
-        x: 0, z: -45, name: 'Djupets väktare', hp: 8, speed: 2.5, scale: 1.7,
-        color: 0x6a1a3a, colliders: dungeonDeep.colliders, bounds: dungeonDeep.bounds
-      })
-    ]
-  }
-};
-
+// --- kamera ---
 const camera = new THREE.PerspectiveCamera(
   70, window.innerWidth / window.innerHeight, 0.1, 1000
 );
-
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-const elda = new NPC(world.scene, {
-  x: 12, z: -16, name: 'Elda', color: 0xaa3355, variant: 'dress',
-  lines: [
-    'Välkommen till Dawnrift, främling. Du föll bokstavligen från himlen!',
-    'Det sägs att grottorna i bergen gömmer både skatter och faror.',
-    'Var försiktig där ute.'
-  ]
-});
-const torvald = new NPC(world.scene, {
-  x: -22, z: 7, name: 'Torvald', color: 0x336655,
-  lines: [
-    'Min farfar gick in i grottan norrut. Han kom aldrig tillbaka...',
-    'Om du hittar hans gamla svärd, får du gärna behålla det.'
-  ]
-});
-const npcs = [elda, torvald];
-npcs.forEach(n => {
-  world.colliders.push({ x: n.mesh.position.x, z: n.mesh.position.z, radius: 0.7 });
-  n.mesh.traverse(o => { if (o.isMesh) o.castShadow = true; });
-});
-
+// --- DOM ---
 const promptEl = document.getElementById('prompt');
 const dialogEl = document.getElementById('dialog');
 const hudEl = document.getElementById('hud');
 const controlsEl = document.getElementById('controls');
+const hintEl = document.getElementById('hint');
 
+// --- föränderligt speltillstånd ---
 let activeNPC = null;
-let location = 'world';
+let location = 'world';        // 'world' | 'house' | 'north' | 'east' | 'deep'
 let currentHouse = null;
 let houseReturnDoor = null;
-let nearPickupObj = null;
-let nearBook = false;
-let nearPotion = false;
-let nearLockedDoor = false;
-let nearMonument = false;
+let interaction = null;        // { prompt, act } – enda källan för både E-prompt och E-handling
 let dialogTimer = 0;
 let potionUnlocked = false;
 let hasBow = false;
 let bowCooldown = 0;
-
+let bullseyeHits = 0;     // träffar i mitten på skyttebanan (questen Pricksäkerhet)
 const arrows = [];
 
-const hintEl = document.getElementById('hint');
-
+// --- scen-/HUD-hjälpare ---
 function activeSceneFor() {
   return location === 'world' ? world.scene :
     location === 'house' ? currentHouse.scene :
@@ -176,6 +96,17 @@ function showMessage(html, seconds = 4) {
   dialogTimer = seconds;
 }
 
+// Stäng en öppen meddelanderuta (t.ex. bokens text) i förtid. Returnerar true
+// om något faktiskt stängdes – används av MenuManager för Escape.
+function closeDialog() {
+  if (dialogTimer > 0) {
+    dialogTimer = 0;
+    dialogEl.style.display = 'none';
+    return true;
+  }
+  return false;
+}
+
 // Drick en läkedryck. Returnerar true om en flaska förbrukades.
 function drinkPotion() {
   if (inventory.count('lakedryck') <= 0) return false;
@@ -190,8 +121,8 @@ function drinkPotion() {
   return true;
 }
 
-// Centraliserad menyhantering: bara en meny öppen i taget, Esc stänger,
-// piltangenter + Enter/E i inventoryt använder valt föremål.
+// Centraliserad menyhantering: bara en meny öppen i taget, Esc stänger meny
+// eller en öppen meddelanderuta, piltangenter + Enter/E använder valt föremål.
 const menus = new MenuManager({
   inventory,
   quests,
@@ -201,9 +132,11 @@ const menus = new MenuManager({
     if (item.id === 'lakedryck') return drinkPotion();
     showMessage(`${item.icon} ${item.name} går inte att använda så.`, 2);
     return false;
-  }
+  },
+  closeDialog
 });
 
+// --- pilar ---
 function clearArrows() {
   for (const a of arrows) a.scene.remove(a.mesh);
   arrows.length = 0;
@@ -226,6 +159,120 @@ function fireArrow() {
   const scene = activeSceneFor();
   scene.add(arrow);
   arrows.push({ mesh: arrow, dir, dist: 0, scene });
+}
+
+function updateArrows(delta) {
+  const target = world.archeryTarget;
+  for (let i = arrows.length - 1; i >= 0; i--) {
+    const a = arrows[i];
+    const step = 32 * delta;
+    const prev = a.mesh.position.clone();
+    a.mesh.position.addScaledVector(a.dir, step);
+    a.dist += step;
+    let hit = false;
+    if (dungeons[location] && a.scene === dungeons[location].sceneObj.scene) {
+      for (const en of dungeons[location].enemies) {
+        if (en.alive && en.distanceTo(a.mesh.position) < 1.0) {
+          en.takeDamage(a.mesh.position);
+          if (!en.alive) showMessage(`<b>${en.name} är besegrad!</b>`);
+          hit = true;
+          break;
+        }
+      }
+    } else if (location === 'world' && target && a.scene === world.scene) {
+      // Klassa träffen efter var pilen korsar tavlans plan (z = center.z),
+      // inte efter närmaste frame-avstånd – annars kan framen strax före mitten
+      // felaktigt räknas som ringträff och förbruka pilen innan den når mitten.
+      const planeZ = target.center.z;
+      const cur = a.mesh.position;
+      if (prev.z > planeZ && cur.z <= planeZ) {
+        const t = (prev.z - planeZ) / (prev.z - cur.z);
+        const hx = prev.x + (cur.x - prev.x) * t;
+        const hy = prev.y + (cur.y - prev.y) * t;
+        const radial = Math.hypot(hx - target.center.x, hy - target.center.y);
+        if (radial < target.bullseyeRadius) { registerBullseye(); hit = true; }
+        else if (radial < target.radius) { registerTargetHit(); hit = true; }
+      }
+    }
+    if (hit || a.dist > 45) {
+      a.scene.remove(a.mesh);
+      arrows.splice(i, 1);
+    }
+  }
+}
+
+// --- quest-/interaktionsskript (anropas av interaction.act) ---
+function talkTo(npc) {
+  if (npc === bryn) { talkToArcher(); return; }
+  let extra = '';
+  if (npc === torvald) {
+    if (!quests.has('hitta_svardet')) {
+      quests.add({ id: 'hitta_svardet', title: 'Farfars svärd', text: 'Hitta svärdet i grottan norrut.' });
+      extra = '<br><i>Nytt uppdrag: Farfars svärd (tryck Q för uppdragsloggen)</i>';
+    } else if (quests.isActive('atervand_torvald')) {
+      quests.complete('atervand_torvald');
+      quests.add({ id: 'grottan_i_oster', title: 'Grottan i öster', text: 'Utforska grottan österut, bortom skogen.' });
+      torvald.setLines([
+        'Grottan i öster... ingen i byn vågar gå nära den.',
+        'Lycka till, äventyrare. Farfars svärd är i goda händer.'
+      ]);
+      extra = '<br><i>Uppdrag slutfört! Nytt uppdrag: Grottan i öster</i>';
+    }
+  }
+  dialogEl.innerHTML = `<b>${npc.name}:</b> ${npc.nextLine()}` + extra;
+  dialogEl.style.display = 'block';
+}
+
+// Bryn vid skyttebanan: kontextkänslig dialog + questen Pricksäkerhet.
+function talkToArcher() {
+  let msg;
+  if (!hasBow) {
+    msg = 'Skjutbanan är till för bågskyttar. Hitta en pilbåge först, så lär jag dig att sikta.';
+  } else if (quests.isComplete('pricksakerhet')) {
+    msg = 'Mästerligt skjutet! Banan står öppen om du vill öva mer.';
+  } else {
+    if (!quests.has('pricksakerhet')) {
+      quests.add({
+        id: 'pricksakerhet', title: 'Pricksäkerhet',
+        text: 'Träffa piltavlans mitt 3 gånger på skyttebanan.'
+      });
+    }
+    msg = `Ställ dig vid linjen och sikta mot pricken i mitten. Tryck G för att skjuta. Träffa mitten tre gånger! (${bullseyeHits}/3)`;
+  }
+  dialogEl.innerHTML = `<b>${bryn.name}:</b> ${msg}`;
+  dialogEl.style.display = 'block';
+}
+
+function registerBullseye() {
+  if (!quests.isActive('pricksakerhet')) {
+    showMessage('<b>Mitt i prick!</b>', 1.5);
+    return;
+  }
+  bullseyeHits++;
+  if (bullseyeHits >= 3) {
+    quests.complete('pricksakerhet');
+    showMessage('<b>Mitt i prick — 3/3!</b> Pricksäkerheten är bemästrad. Bryn nickar imponerat.', 4);
+  } else {
+    showMessage(`<b>Mitt i prick!</b> ${bullseyeHits}/3`, 2);
+  }
+}
+
+function registerTargetHit() {
+  showMessage('Träff på tavlan! Sikta mot pricken i mitten.', 1.5);
+}
+
+function takePotionFromHouse() {
+  currentHouse.takePotion();
+  inventory.add({ id: 'lakedryck', name: 'Läkedryck', icon: '🧪', usable: true });
+  updateHud();
+  showMessage('<b>Du tog en läkedryck!</b> Tryck R, eller öppna inventoryt (I) och välj den.', 5);
+}
+
+function collectPickup(pk) {
+  dungeons[location].sceneObj.collect(pk);
+  inventory.add(pk.loot);
+  updateHud();
+  handleLootEffect(pk.loot.id);
 }
 
 function handleLootEffect(id) {
@@ -253,56 +300,17 @@ function handleLootEffect(id) {
   }
 }
 
+// --- input ---
 window.addEventListener('keydown', e => {
   // När en meny är öppen sköter MenuManager tangenterna (val, Esc osv)
   if (menus.isOpen()) return;
-
   if (e.code === 'KeyG') { fireArrow(); return; }
-
   if (e.code === 'KeyR') { drinkPotion(); return; }
-
-  if (e.code !== 'KeyE') return;
-
-  if (location === 'world' && activeNPC) {
-    let extra = '';
-    if (activeNPC === torvald) {
-      if (!quests.has('hitta_svardet')) {
-        quests.add({ id: 'hitta_svardet', title: 'Farfars svärd', text: 'Hitta svärdet i grottan norrut.' });
-        extra = '<br><i>Nytt uppdrag: Farfars svärd (tryck Q för uppdragsloggen)</i>';
-      } else if (quests.isActive('atervand_torvald')) {
-        quests.complete('atervand_torvald');
-        quests.add({ id: 'grottan_i_oster', title: 'Grottan i öster', text: 'Utforska grottan österut, bortom skogen.' });
-        torvald.setLines([
-          'Grottan i öster... ingen i byn vågar gå nära den.',
-          'Lycka till, äventyrare. Farfars svärd är i goda händer.'
-        ]);
-        extra = '<br><i>Uppdrag slutfört! Nytt uppdrag: Grottan i öster</i>';
-      }
-    }
-    dialogEl.innerHTML = `<b>${activeNPC.name}:</b> ${activeNPC.nextLine()}` + extra;
-    dialogEl.style.display = 'block';
-
-  } else if (location === 'world' && nearMonument) {
-    showMessage(world.monumentText, 8);
-
-  } else if (location === 'house' && nearBook) {
-    showMessage(currentHouse.bookText, 8);
-
-  } else if (location === 'house' && nearPotion) {
-    currentHouse.takePotion();
-    inventory.add({ id: 'lakedryck', name: 'Läkedryck', icon: '🧪', usable: true });
-    updateHud();
-    showMessage('<b>Du tog en läkedryck!</b> Tryck R, eller öppna inventoryt (I) och välj den.', 5);
-
-  } else if (dungeons[location] && nearPickupObj) {
-    const pk = nearPickupObj;
-    dungeons[location].sceneObj.collect(pk);
-    inventory.add(pk.loot);
-    updateHud();
-    handleLootEffect(pk.loot.id);
-  }
+  // All kontextkänslig E-interaktion går via det aktuella interaction-objektet.
+  if (e.code === 'KeyE' && interaction && interaction.act) interaction.act();
 });
 
+// --- tillståndsövergångar ---
 function enterDungeon(key) {
   location = key;
   clearArrows();
@@ -371,6 +379,112 @@ function onFirstDungeonDamage() {
   showMessage('Du blev skadad! Elda i byn verkar ha lagt märke till det — sök upp henne.', 5);
 }
 
+// --- per-tillstånd-tick (sätter activeNPC/interaction och hanterar övergångar) ---
+function tickWorld(delta) {
+  world.updateSun(player.mesh.position);
+  const pos = player.mesh.position;
+
+  for (const npc of npcs) {
+    if (npc.distanceTo(pos) < 3.5) { activeNPC = npc; npc.faceToward(pos); }
+  }
+  if (activeNPC) {
+    interaction = { prompt: 'Tryck E för att prata', act: () => talkTo(activeNPC) };
+  } else if (pos.distanceTo(world.monumentPos) < 3.4) {
+    interaction = { prompt: 'Tryck E för att granska stoden', act: () => showMessage(world.monumentText, 8) };
+  }
+
+  // Grottingång (övergång – sluta ticka världen denna frame)
+  for (const key of Object.keys(dungeons)) {
+    const ent = dungeons[key].entrance;
+    const dx = pos.x - ent.x, dz = pos.z - ent.z;
+    if (dx * dx + dz * dz < 25) { enterDungeon(key); return; }
+  }
+
+  // Husdörrar: olåsta går in automatiskt, låsta visar bara prompt
+  for (const door of world.houseDoors) {
+    const dx = pos.x - door.x, dz = pos.z - door.z;
+    if (dx * dx + dz * dz < 5.3) {
+      if (door.locked) {
+        if (!interaction) interaction = { prompt: 'Dörren är låst – förseglad tills vidare', act: null };
+      } else {
+        enterHouse(door);
+        return;
+      }
+      break;
+    }
+  }
+}
+
+function tickHouseInterior(delta) {
+  currentHouse.update(delta);
+  const pos = player.mesh.position;
+
+  // Bok och flaska kan ligga nära varandra på skrivbordet. Markera bara EN
+  // i taget – den spelaren står närmast – så det går att sikta på rätt sak.
+  const dBook = currentHouse.book
+    ? pos.distanceTo(currentHouse.bookPos) : Infinity;
+  const dPotion = (currentHouse.potion && currentHouse.potion.visible && !currentHouse.potionTaken)
+    ? pos.distanceTo(currentHouse.potionPos) : Infinity;
+  const bookInRange = dBook < 2.2;
+  const potionInRange = dPotion < 1.9;
+  let showBook = false, showPotion = false;
+  if (bookInRange && potionInRange) {
+    if (dBook <= dPotion) showBook = true; else showPotion = true;
+  } else {
+    showBook = bookInRange;
+    showPotion = potionInRange;
+  }
+  if (showBook) {
+    interaction = { prompt: 'Tryck E för att läsa boken', act: () => showMessage(currentHouse.bookText, 8) };
+  } else if (showPotion) {
+    interaction = { prompt: 'Tryck E för att plocka upp flaskan', act: takePotionFromHouse };
+  }
+
+  if (pos.distanceTo(currentHouse.exitPos) < 1.0) exitHouse();
+}
+
+function tickDungeon(delta) {
+  const d = dungeons[location];
+  d.sceneObj.update(delta);
+  const pos = player.mesh.position;
+
+  for (const en of d.enemies) {
+    en.update(delta, pos);
+    if (!en.alive) continue;
+
+    if (player.attackActive && en.distanceTo(pos) < 2.3) {
+      en.takeDamage(pos);
+      if (!en.alive) showMessage(`<b>${en.name} är besegrad!</b>`);
+    }
+    if (en.alive && en.distanceTo(pos) < 1.2 && player.takeDamage(en.mesh.position)) {
+      updateHud();
+      onFirstDungeonDamage();
+      if (player.hp <= 0) { respawn(); return; }
+    }
+  }
+
+  const sd = d.sceneObj;
+  for (const pk of sd.pickups) {
+    if (!pk.taken && pos.distanceTo(pk.group.position) < 2.2) {
+      interaction = { prompt: 'Tryck E för att plocka upp föremålet', act: () => collectPickup(pk) };
+      break;
+    }
+  }
+  if (pos.distanceTo(sd.exit.position) < 1.4) exitDungeon();
+}
+
+function renderPrompt() {
+  // Bara ETT meddelande i taget: visas en meddelanderuta göms prompten.
+  if (dialogTimer > 0) { promptEl.style.display = 'none'; return; }
+  if (interaction) {
+    promptEl.textContent = interaction.prompt;
+    promptEl.style.display = 'block';
+  } else {
+    promptEl.style.display = 'none';
+  }
+}
+
+// --- loop ---
 const clock = new THREE.Clock();
 
 function animate() {
@@ -379,116 +493,16 @@ function animate() {
   if (bowCooldown > 0) bowCooldown -= delta;
 
   player.setInputEnabled(!menus.isOpen());
-
   player.update(delta);
+
   activeNPC = null;
-  nearPickupObj = null;
-  nearBook = false;
-  nearPotion = false;
-  nearLockedDoor = false;
-  nearMonument = false;
+  interaction = null;
 
-  if (location === 'world') {
-    world.updateSun(player.mesh.position);
+  if (location === 'world') tickWorld(delta);
+  else if (location === 'house') tickHouseInterior(delta);
+  else tickDungeon(delta);
 
-    for (const npc of npcs) {
-      if (npc.distanceTo(player.mesh.position) < 3.5) {
-        activeNPC = npc;
-        npc.faceToward(player.mesh.position);
-      }
-    }
-    if (!activeNPC && player.mesh.position.distanceTo(world.monumentPos) < 3.4) {
-      nearMonument = true;
-    }
-
-    for (const key of Object.keys(dungeons)) {
-      const ent = dungeons[key].entrance;
-      const dx = player.mesh.position.x - ent.x;
-      const dz = player.mesh.position.z - ent.z;
-      if (dx * dx + dz * dz < 25) { enterDungeon(key); break; }
-    }
-
-    if (location === 'world') {
-      for (const door of world.houseDoors) {
-        const dx = player.mesh.position.x - door.x;
-        const dz = player.mesh.position.z - door.z;
-        if (dx * dx + dz * dz < 5.3) {
-          if (door.locked) nearLockedDoor = true;
-          else enterHouse(door);
-          break;
-        }
-      }
-    }
-
-  } else if (location === 'house') {
-    currentHouse.update(delta);
-    // Bok och flaska kan ligga nära varandra på skrivbordet. Markera bara EN
-    // i taget – den spelaren står närmast – så det går att sikta på rätt sak.
-    const dBook = currentHouse.book
-      ? player.mesh.position.distanceTo(currentHouse.bookPos) : Infinity;
-    const dPotion = (currentHouse.potion && currentHouse.potion.visible && !currentHouse.potionTaken)
-      ? player.mesh.position.distanceTo(currentHouse.potionPos) : Infinity;
-    const bookInRange = dBook < 2.2;
-    const potionInRange = dPotion < 1.9;
-    if (bookInRange && potionInRange) {
-      if (dBook <= dPotion) nearBook = true; else nearPotion = true;
-    } else {
-      nearBook = bookInRange;
-      nearPotion = potionInRange;
-    }
-    if (player.mesh.position.distanceTo(currentHouse.exitPos) < 1.0) exitHouse();
-
-  } else {
-    const d = dungeons[location];
-    d.sceneObj.update(delta);
-
-    for (const en of d.enemies) {
-      en.update(delta, player.mesh.position);
-      if (!en.alive) continue;
-
-      if (player.attackActive && en.distanceTo(player.mesh.position) < 2.3) {
-        en.takeDamage(player.mesh.position);
-        if (!en.alive) showMessage(`<b>${en.name} är besegrad!</b>`);
-      }
-      if (en.alive && en.distanceTo(player.mesh.position) < 1.2 &&
-          player.takeDamage(en.mesh.position)) {
-        updateHud();
-        onFirstDungeonDamage();
-        if (player.hp <= 0) { respawn(); break; }
-      }
-    }
-
-    if (dungeons[location]) {
-      const p = player.mesh.position;
-      const sd = dungeons[location].sceneObj;
-      for (const pk of sd.pickups) {
-        if (!pk.taken && p.distanceTo(pk.group.position) < 2.2) { nearPickupObj = pk; break; }
-      }
-      if (p.distanceTo(sd.exit.position) < 1.4) exitDungeon();
-    }
-  }
-
-  for (let i = arrows.length - 1; i >= 0; i--) {
-    const a = arrows[i];
-    const step = 32 * delta;
-    a.mesh.position.addScaledVector(a.dir, step);
-    a.dist += step;
-    let hit = false;
-    if (dungeons[location] && a.scene === dungeons[location].sceneObj.scene) {
-      for (const en of dungeons[location].enemies) {
-        if (en.alive && en.distanceTo(a.mesh.position) < 1.0) {
-          en.takeDamage(a.mesh.position);
-          if (!en.alive) showMessage(`<b>${en.name} är besegrad!</b>`);
-          hit = true;
-          break;
-        }
-      }
-    }
-    if (hit || a.dist > 45) {
-      a.scene.remove(a.mesh);
-      arrows.splice(i, 1);
-    }
-  }
+  updateArrows(delta);
 
   if (location === 'world') {
     minimap.show();
@@ -499,31 +513,7 @@ function animate() {
 
   music.play(dungeons[location] ? 'dungeon' : 'world');
 
-  if (dialogTimer > 0) {
-    // Ett meddelande (t.ex. bokens innehåll) visas redan – göm prompten så
-    // att bara ETT meddelande syns i taget och inget ligger bakom texten.
-    promptEl.style.display = 'none';
-  } else if (activeNPC) {
-    promptEl.textContent = 'Tryck E för att prata';
-    promptEl.style.display = 'block';
-  } else if (nearMonument) {
-    promptEl.textContent = 'Tryck E för att granska stoden';
-    promptEl.style.display = 'block';
-  } else if (nearPickupObj) {
-    promptEl.textContent = 'Tryck E för att plocka upp föremålet';
-    promptEl.style.display = 'block';
-  } else if (nearBook) {
-    promptEl.textContent = 'Tryck E för att läsa boken';
-    promptEl.style.display = 'block';
-  } else if (nearPotion) {
-    promptEl.textContent = 'Tryck E för att plocka upp flaskan';
-    promptEl.style.display = 'block';
-  } else if (nearLockedDoor) {
-    promptEl.textContent = 'Dörren är låst – förseglad tills vidare';
-    promptEl.style.display = 'block';
-  } else {
-    promptEl.style.display = 'none';
-  }
+  renderPrompt();
 
   if (dialogTimer > 0) {
     dialogTimer -= delta;

@@ -232,8 +232,20 @@ export function addTowerHouse(scene, colliders, houseDoors, x, z) {
   const stoneMat = new THREE.MeshLambertMaterial({ color: 0x7b746c });
   const roofMat  = new THREE.MeshLambertMaterial({ color: 0x4f4a58 });
   const woodMat  = new THREE.MeshLambertMaterial({ color: 0x4a3826 });
+  const baseMat  = new THREE.MeshLambertMaterial({ color: 0x615d56 });
 
   const tower = new THREE.Group();
+
+  // Stengrund/plint som täcker glipan när tornet står i en sluttning (samma
+  // idé som herrgårdens grund). Toppen ligger i liv med kroppens botten (y=0)
+  // och sträcker sig ned under marken så att inget svävar på nedförssidan.
+  const foundation = new THREE.Mesh(
+    new THREE.BoxGeometry(half * 2 + 0.6, 1.8, half * 2 + 0.6),
+    baseMat
+  );
+  foundation.position.y = -0.8; // spänner lokal -1.7 .. +0.1
+  foundation.castShadow = true;
+  foundation.receiveShadow = true;
 
   const body = new THREE.Mesh(
     new THREE.BoxGeometry(half * 2, height, half * 2),
@@ -249,7 +261,7 @@ export function addTowerHouse(scene, colliders, houseDoors, x, z) {
   roof.rotation.y = Math.PI / 4;
   roof.castShadow = true;
 
-  tower.add(body, roof);
+  tower.add(foundation, body, roof);
   tower.position.set(x, y, z);
   scene.add(tower);
 
