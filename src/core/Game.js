@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { WorldScene } from '../world/WorldScene.js';
 import { DungeonScene } from '../world/DungeonScene.js';
 import { HouseScene } from '../world/HouseScene.js';
+import { TowerScene } from '../world/TowerScene.js';
 import { Player } from '../entities/Player.js';
 import { NPC } from '../entities/NPC.js';
 import { Enemy } from '../entities/Enemy.js';
@@ -44,7 +45,8 @@ player.mesh.traverse(o => { if (o.isMesh) o.castShadow = true; });
 
 const houses = {
   elda: new HouseScene({ owner: 'elda' }),
-  torvald: new HouseScene({ owner: 'torvald' })
+  torvald: new HouseScene({ owner: 'torvald' }),
+  tower: new TowerScene()
 };
 
 const dungeonNorth = new DungeonScene({ length: 60 });
@@ -318,12 +320,26 @@ function exitDungeon() {
 }
 
 function enterHouse(door) {
+  const house = houses[door.owner];
+  if (!house) {
+    // Ingen interiör kopplad till dörren (t.ex. owner: null). Behandla som
+    // låst i stället för att krascha på houses[undefined].scene.
+    showMessage('Dörren är låst – förseglad tills vidare', 2);
+    return;
+  }
   location = 'house';
   clearArrows();
-  currentHouse = houses[door.owner];
+  currentHouse = house;
   houseReturnDoor = door;
   currentHouse.scene.add(player.mesh);
-  player.teleport(0, 2.5, { groundFn: () => 0, colliders: currentHouse.colliders, bounds: currentHouse.bounds });
+  const sp = house.entryPos || { x: 0, z: 2.5 };
+  player.teleport(sp.x, sp.z, {
+    groundFn: house.groundFn || (() => 0),
+    colliders: currentHouse.colliders,
+    bounds: currentHouse.bounds,
+    cameraMaxY: house.cameraMaxY,
+    faceY: house.faceY
+  });
 }
 
 function exitHouse() {
@@ -406,10 +422,20 @@ function animate() {
 
   } else if (location === 'house') {
     currentHouse.update(delta);
-    if (currentHouse.book &&
-        player.mesh.position.distanceTo(currentHouse.bookPos) < 2.2) nearBook = true;
-    if (currentHouse.potion && currentHouse.potion.visible && !currentHouse.potionTaken &&
-        player.mesh.position.distanceTo(currentHouse.potionPos) < 1.9) nearPotion = true;
+    // Bok och flaska kan ligga nära varandra på skrivbordet. Markera bara EN
+    // i taget – den spelaren står närmast – så det går att sikta på rätt sak.
+    const dBook = currentHouse.book
+      ? player.mesh.position.distanceTo(currentHouse.bookPos) : Infinity;
+    const dPotion = (currentHouse.potion && currentHouse.potion.visible && !currentHouse.potionTaken)
+      ? player.mesh.position.distanceTo(currentHouse.potionPos) : Infinity;
+    const bookInRange = dBook < 2.2;
+    const potionInRange = dPotion < 1.9;
+    if (bookInRange && potionInRange) {
+      if (dBook <= dPotion) nearBook = true; else nearPotion = true;
+    } else {
+      nearBook = bookInRange;
+      nearPotion = potionInRange;
+    }
     if (player.mesh.position.distanceTo(currentHouse.exitPos) < 1.0) exitHouse();
 
   } else {
@@ -473,7 +499,11 @@ function animate() {
 
   music.play(dungeons[location] ? 'dungeon' : 'world');
 
-  if (activeNPC) {
+  if (dialogTimer > 0) {
+    // Ett meddelande (t.ex. bokens innehåll) visas redan – göm prompten så
+    // att bara ETT meddelande syns i taget och inget ligger bakom texten.
+    promptEl.style.display = 'none';
+  } else if (activeNPC) {
     promptEl.textContent = 'Tryck E för att prata';
     promptEl.style.display = 'block';
   } else if (nearMonument) {

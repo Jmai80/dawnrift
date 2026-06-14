@@ -95,6 +95,8 @@ export class Player {
     this.slashSound.volume = 0.6;
 
     this.inputEnabled = true;
+    this.cameraMaxY = 4.4; // tak för kamerahöjd inomhus (höjs i flervånings-torn)
+    this.cameraGroundClearance = 2.2; // håll kameran så här mycket ovanför marken under den
 
     window.addEventListener('keydown', e => {
       if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
@@ -265,6 +267,8 @@ export class Player {
     if (env.groundFn) this.groundFn = env.groundFn;
     this.colliders = env.colliders || [];
     this.bounds = env.bounds || null;
+    this.cameraMaxY = (env.cameraMaxY != null) ? env.cameraMaxY : 4.4;
+    if (env.faceY != null) this.mesh.rotation.y = env.faceY;
     this.isFalling = false;
     this.isJumping = false;
     this.velocityY = 0;
@@ -292,7 +296,15 @@ export class Player {
     if (this.bounds) {
       target.x = Math.min(this.bounds.maxX, Math.max(this.bounds.minX, target.x));
       target.z = Math.min(this.bounds.maxZ, Math.max(this.bounds.minZ, target.z));
-      target.y = Math.min(4.4, target.y);
+      target.y = Math.min(this.cameraMaxY, target.y);
+    }
+
+    // Håll kameran ovanför golvet/trappan som ligger under DEN (inte under
+    // spelaren). När man går nedför en trappa sitter kameran uppför bakom
+    // spelaren, där marken är högre – utan detta hamnar den inuti trappstegen.
+    if (this.groundFn) {
+      const groundAtCam = this.groundFn(target.x, target.z) + this.cameraGroundClearance;
+      if (target.y < groundAtCam) target.y = groundAtCam;
     }
 
     camera.position.lerp(target, 0.1);
