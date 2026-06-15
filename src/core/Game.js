@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { WorldScene } from '../world/WorldScene.js';
 import { HouseScene } from '../world/HouseScene.js';
 import { TowerScene } from '../world/TowerScene.js';
+import { NorthTowerScene } from '../world/NorthTowerScene.js';
 import { RangeShopScene } from '../world/RangeShopScene.js';
 import { ManorShopScene } from '../world/ManorShopScene.js';
 import { PuzzleHouseScene } from '../world/PuzzleHouseScene.js';
@@ -41,6 +42,7 @@ minimap.setMarkers(buildMinimapMarkers(world));
 const music = new MusicSystem();
 music.add('world', '/audio/world-theme.mp3');
 music.add('dungeon', '/audio/dungeon-theme.mp3');
+music.add('house', '/audio/house-theme.mp3');
 
 player.mesh.traverse(o => { if (o.isMesh) o.castShadow = true; });
 
@@ -49,6 +51,7 @@ const houses = {
   torvald:  new HouseScene({ owner: 'torvald' }),
   gubbe:    new HouseScene({ owner: 'gubbe' }),
   tower:    new TowerScene(),
+  tower2:   new NorthTowerScene(),
   rangeshop:new RangeShopScene(),
   manor:    new ManorShopScene(),
   puzzle:   new PuzzleHouseScene(),
@@ -1242,7 +1245,7 @@ function animate() {
     minimap.hide();
   }
 
-  music.play(dungeons[location] ? 'dungeon' : 'world');
+  music.play(location === 'house' ? 'house' : dungeons[location] ? 'dungeon' : 'world');
 
   renderPrompt();
 

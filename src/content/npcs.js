@@ -50,7 +50,26 @@ export function createNPCs(world) {
     ]
   });
 
-  const npcs = [elda, torvald, bryn, gubbe];
+  // --- Placeholder-NPC:er (ännu utan spelfunktion) -------------------------
+  // Placerade långt från byn på i dagsläget outforskad mark. De har bara
+  // fallback-repliker; ingen quest- eller specialhantering i Game.js krävs,
+  // eftersom dialogen drivs helt av lines-arrayen för NPC:er utan specialfall.
+  // Koordinatrymden är ±200 (terrängplanet är 400×200), och båda lägena
+  // undviker terrängens utplattningsdiskar (skyttebana, pusselhus, väktarhall).
+
+  // Vandraren – långt i nordväst, öppen mark bortom byn och väktarhallen.
+  const vandraren = new NPC(world.scene, {
+    x: -95, z: -95, name: 'Vandraren', color: 0x7a6a4a, variant: 'man',
+    lines: ['Hej hej. Jag bara vilar benen en stund.']
+  });
+
+  // Eremiten – långt i sydöst, bortom skogen och allt nuvarande innehåll.
+  const eremiten = new NPC(world.scene, {
+    x: 130, z: 120, name: 'Eremiten', color: 0x4a6a7a, variant: 'oldman',
+    lines: ['Hej hej. Få ser hela vägen hit ut.']
+  });
+
+  const npcs = [elda, torvald, bryn, gubbe, vandraren, eremiten];
   npcs.forEach(n => {
     // Vandrande NPC:er får ingen fast collider (den skulle ligga kvar där de
     // spawnade); de andra får en som förut.
@@ -58,5 +77,5 @@ export function createNPCs(world) {
     n.mesh.traverse(o => { if (o.isMesh) o.castShadow = true; });
   });
 
-  return { elda, torvald, bryn, gubbe, npcs };
+  return { elda, torvald, bryn, gubbe, vandraren, eremiten, npcs };
 }

@@ -549,3 +549,86 @@ export function addTowerHouse(scene, colliders, houseDoors, x, z) {
   addWallLine(colliders, x - half, z - half, x - half, z + half);
   addWallLine(colliders, x + half, z - half, x + half, z + half);
 }
+
+// === LÄGG TILL DETTA I src/world/props/houses.js ===
+// Klistra in funktionen nedan i slutet av filen (efter addTowerHouse).
+// Den är en kopia av addTowerHouse men med svalare grön sten och owner:'tower2',
+// så att den kopplas till NorthTowerScene (en egen interiör, ej det gamla tornet).
+
+// Norra tornet – nästan identiskt med addTowerHouse men i svalare grön sten så
+// att spelaren ser skillnad på avstånd. Går att gå in i (owner: 'tower2').
+export function addNorthTower(scene, colliders, houseDoors, x, z) {
+  const y = getHeight(x, z);
+  const half = 2.8;            // halva bredden -> 5.6 × 5.6 fotavtryck
+  const height = 18;
+
+  const stoneMat = new THREE.MeshLambertMaterial({ color: 0x5f6f63 }); // grönaktig sten
+  const roofMat  = new THREE.MeshLambertMaterial({ color: 0x33474a }); // mörkare blågrönt tak
+  const woodMat  = new THREE.MeshLambertMaterial({ color: 0x3a4030 });
+  const baseMat  = new THREE.MeshLambertMaterial({ color: 0x4c544a });
+
+  const tower = new THREE.Group();
+
+  const foundation = new THREE.Mesh(
+    new THREE.BoxGeometry(half * 2 + 0.6, 1.8, half * 2 + 0.6),
+    baseMat
+  );
+  foundation.position.y = -0.8;
+  foundation.castShadow = true;
+  foundation.receiveShadow = true;
+
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(half * 2, height, half * 2),
+    stoneMat
+  );
+  body.position.y = height / 2;
+  body.castShadow = true;
+  body.receiveShadow = true;
+
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(4.4, 5, 4), roofMat);
+  roof.position.y = height + 2.5;
+  roof.rotation.y = Math.PI / 4;
+  roof.castShadow = true;
+
+  tower.add(foundation, body, roof);
+  tower.position.set(x, y, z);
+  scene.add(tower);
+
+  // --- Dörr: framåtvänd, infattad trädörr i liv med väggen ---
+  const doorGroup = new THREE.Group();
+  const panel = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.2, 2.4),
+    new THREE.MeshLambertMaterial({ color: 0x2a2418 })
+  );
+  panel.position.set(0, 1.2, 0.02);
+  const postL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 2.7, 0.2), woodMat);
+  postL.position.set(-0.72, 1.35, 0.04);
+  const postR = postL.clone();
+  postR.position.x = 0.72;
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(1.76, 0.18, 0.2), woodMat);
+  lintel.position.set(0, 2.6, 0.04);
+  const knob = new THREE.Mesh(
+    new THREE.SphereGeometry(0.06, 8, 8),
+    new THREE.MeshLambertMaterial({ color: 0x9ec0a0 })
+  );
+  knob.position.set(0.42, 1.15, 0.07);
+  doorGroup.add(panel, postL, postR, lintel, knob);
+  doorGroup.position.set(x, y, z + half + 0.02);
+  scene.add(doorGroup);
+
+  // Olåst och kopplad till norra torninteriören (NorthTowerScene via houses['tower2']).
+  houseDoors.push({ x, z: z + half, owner: 'tower2', locked: false });
+
+  // --- Ljusa fönster uppför framsidan ---
+  for (const wy of [5.2, 9.2, 13.2]) {
+    addBrightWindow(scene, x, y + wy, z + half + 0.05, 0);
+  }
+  addBrightWindow(scene, x + half + 0.05, y + 11, z, Math.PI / 2);
+  addBrightWindow(scene, x - half - 0.05, y + 11, z, Math.PI / 2);
+
+  // --- Kollision: sluten rätblocks-perimeter ---
+  addWallLine(colliders, x - half, z + half, x + half, z + half);
+  addWallLine(colliders, x - half, z - half, x + half, z - half);
+  addWallLine(colliders, x - half, z - half, x - half, z + half);
+  addWallLine(colliders, x + half, z - half, x + half, z + half);
+}

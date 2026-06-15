@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { getHeight, createTerrain } from './terrain/Terrain.js';
 import { addTree, addFlower, addSunflower, addGerbera } from './props/vegetation.js';
-import { addHouse, addManor, addTowerHouse, addGubbeHus, addPuzzleHus, addGuardHall } from './props/houses.js';
+import { addHouse, addManor, addTowerHouse, addNorthTower, addGubbeHus, addPuzzleHus, addGuardHall } from './props/houses.js';
 import { addCave } from './props/caves.js';
 import { addShootingRange } from './props/shootingRange.js';
 import { TREE_POSITIONS } from '../content/treePositions.js';
@@ -124,6 +124,8 @@ export class WorldScene {
     }
 
     addCave(this.scene, this.caves, 10, -120);
+    // Norra tornet – långt norrut, bortom grottan, nära världens norra kant.
+    addNorthTower(this.scene, this.colliders, this.houseDoors, 10, -175);
     addCave(this.scene, this.caves, 140, 10);
     addCave(this.scene, this.caves, -100, 115);
 
