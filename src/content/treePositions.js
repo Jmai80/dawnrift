@@ -1,11 +1,4 @@
-// Fasta, deterministiska trädpositioner (world-space).
-//
-// Tidigare placerades träden med Math.random() vid varje start, vilket gjorde att
-// de kunde hamna i eller alldeles intill byggnader och flyttade sig mellan körningar.
-// Nu är listan fryst: samma positioner varje gång, helt utanför byggnaders
-// uteslutningszoner. Eftersom positionerna är fasta kan de refereras stabilt när
-// NPC:er och platser i framtiden ska placeras i relation till enskilda träd
-// (t.ex. TREE_POSITIONS[7]). Genererad en gång med seedat PRNG + uteslutningszoner.
+// Fasta trädpositioner. Regenererad med väktarhallen (-148,0) vid världskanten.
 export const TREE_POSITIONS = [
   { x: 9.86, z: 25.05 },
   { x: 69.01, z: 44.51 },

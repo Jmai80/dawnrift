@@ -4,15 +4,21 @@ import { HouseScene } from '../world/HouseScene.js';
 import { TowerScene } from '../world/TowerScene.js';
 import { RangeShopScene } from '../world/RangeShopScene.js';
 import { ManorShopScene } from '../world/ManorShopScene.js';
+import { PuzzleHouseScene } from '../world/PuzzleHouseScene.js';
+import { GuardHallScene } from '../world/GuardHallScene.js';
+import { PUZZLE_HOUSE_POS, GUARDHALL_POS } from '../world/WorldScene.js';
+import { Enemy } from '../entities/Enemy.js';
 import { Player } from '../entities/Player.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { QuestSystem } from '../systems/QuestSystem.js';
 import { MusicSystem } from '../systems/MusicSystem.js';
 import { MinimapSystem } from '../systems/MinimapSystem.js';
 import { MenuManager } from '../systems/MenuManager.js';
+import { SaveSystem } from '../systems/SaveSystem.js';
 import { getHeight } from '../world/terrain/Terrain.js';
 import { createDungeons } from '../content/dungeons.js';
 import { createNPCs } from '../content/npcs.js';
+import { GUBBE_RING } from '../content/npcs.js';
 import { buildMinimapMarkers } from '../content/minimapMarkers.js';
 
 const POTION_HEAL = 3;
@@ -39,16 +45,19 @@ music.add('dungeon', '/audio/dungeon-theme.mp3');
 player.mesh.traverse(o => { if (o.isMesh) o.castShadow = true; });
 
 const houses = {
-  elda: new HouseScene({ owner: 'elda' }),
-  torvald: new HouseScene({ owner: 'torvald' }),
-  tower: new TowerScene(),
-  rangeshop: new RangeShopScene(),
-  manor: new ManorShopScene()
+  elda:     new HouseScene({ owner: 'elda' }),
+  torvald:  new HouseScene({ owner: 'torvald' }),
+  gubbe:    new HouseScene({ owner: 'gubbe' }),
+  tower:    new TowerScene(),
+  rangeshop:new RangeShopScene(),
+  manor:    new ManorShopScene(),
+  puzzle:   new PuzzleHouseScene(),
+  guardhall:new GuardHallScene()
 };
 
 // --- innehåll (data i src/content/) ---
 const dungeons = createDungeons(world);
-const { elda, torvald, bryn, npcs } = createNPCs(world);
+const { elda, torvald, bryn, gubbe, npcs } = createNPCs(world);
 
 // --- kamera ---
 const camera = new THREE.PerspectiveCamera(
@@ -79,9 +88,14 @@ let potionUnlocked = false;
 let hasBow = false;
 let bowCooldown = 0;
 let bullseyeHits = 0;     // träffar i mitten på skyttebanan (questen Pricksäkerhet)
-let gold = 0;          // starta med noll
+let gold = 0;             // guldmynt – börjar på noll
 let strengthBought = false; // den stärkande potionen är en engångs-permanent uppgradering
 const arrows = [];
+
+// Väktarhallen (väster): vättarna som vaktar den + upplåsning.
+const guardians = [];          // världsfiender som vaktar hallen
+let guardhallUnlocked = false; // dörr + vättar frigörs när de tre grottorna är clearade
+let symbolRevealed = false;    // altaret i hallen avslöjar symbolens mening
 
 // --- scen-/HUD-hjälpare ---
 function activeSceneFor() {
@@ -176,6 +190,262 @@ function drinkPotion() {
   return true;
 }
 
+// --- gubbequest-tillstånd ---
+// Tre faser som spåras explicit utöver QuestSystem-loggarna, eftersom
+// gubbens dialog-gren och husinteriörens interaktioner beror på dem.
+let gubbeMetOnce  = false;  // spelaren har pratat med gubben minst en gång
+let trinketFound  = false;  // spelaren har hittat prylen i huset
+let mapGiven      = false;  // gubben har gett spelaren kartan
+let mapReadOnce   = false;  // spelaren har läst kartan (quest-kedjan slutkläm)
+
+function talkToGubbe() {
+  if (!gubbeMetOnce) {
+    // Första mötet: starta quest-kedjan
+    gubbeMetOnce = true;
+    milestone('hitta_gubben', 'Den förvirrade gubben',
+      'Träffa den förvirrade gubben som vandrar söder om byn.');
+    quests.add({
+      id: 'gubbens_pryl',
+      title: 'Gubbens förlorade pryl',
+      text: 'Han minns inte vad han letar efter, men tror att det finns i hans hus sydost om vandringsringen.'
+    });
+    gubbe.lineIndex = 0;
+    showMessage(
+      `<b>${gubbe.name}:</b> ${gubbe.lines[0]}<br><i>Nytt uppdrag: Gubbens förlorade pryl</i>`,
+      6
+    );
+    return;
+  }
+
+  if (trinketFound && !mapGiven) {
+    // Spelaren har hittat prylen och återvänder: gubben minns och ger kartan
+    // direkt i handen — ingen extra resa till huset.
+    mapGiven = true;
+    quests.complete('ge_gubben_prylen');
+    quests.add({
+      id: 'hemlig_karta',
+      title: 'Den hemliga kartan',
+      text: 'Kartan pekar mot en dold plats djupt i skogen söderut. Hitta platsen.'
+    });
+    // Ge kartan direkt till spelaren
+    inventory.add({ id: 'hemlig_karta', name: 'Hemlig karta', icon: '🗺️', usable: true });
+    updateHud();
+    gubbe.lineIndex = 1;
+    showMessage(
+      `<b>${gubbe.name}:</b> ${gubbe.lines[1]}<br><i>Uppdrag slutfört! Nytt uppdrag: Den hemliga kartan — läs den i inventoryt (I)</i>`,
+      8
+    );
+    return;
+  }
+
+  if (mapGiven) {
+    gubbe.lineIndex = 2;
+    showMessage(`<b>${gubbe.name}:</b> ${gubbe.lines[2]}`, 5);
+    return;
+  }
+
+  // Mellantillstånd: quest aktivt men prylen inte hittad än
+  showMessage(
+    `<b>${gubbe.name}:</b> Mitt hus... det är sydost härifrån, en bit bortom den här ringen. Det kanske ligger kvar där inne?`,
+    4
+  );
+}
+
+function collectTrinket() {
+  trinketFound = true;
+  houses.gubbe.takeTrinket();
+  inventory.add({ id: 'gubbens_medaljon', name: 'Gubbens medaljon', icon: '🏅' });
+  updateHud();
+  quests.complete('gubbens_pryl');
+  quests.add({
+    id: 'ge_gubben_prylen',
+    title: 'Återvänd till gubben',
+    text: 'Du hittade en medaljon i gubbens hus — återvänd till honom söder om byn.'
+  });
+  showMessage(
+    '<b>Du hittade en gammal medaljon!</b> Stoftig men vacker. Det verkar vara gubbens — återvänd till honom.',
+    5
+  );
+}
+
+function collectMap() {
+  houses.gubbe.takeMap();
+  inventory.add({ id: 'hemlig_karta', name: 'Hemlig karta', icon: '🗺️' });
+  updateHud();
+  showMessage(
+    '<b>Du tar kartan.</b> Pergamentet är gammalt men teckningarna är tydliga — en plats djupt i skogen söderut. Tryck E för att läsa den i inventoryt.',
+    5
+  );
+}
+
+function readMap() {
+  if (!mapReadOnce) {
+    mapReadOnce = true;
+    // Avslöja pussel-husets position på minimapen
+    minimap.setMarkers([
+      ...buildMinimapMarkers(world),
+      { x: PUZZLE_HOUSE_POS.x, z: PUZZLE_HOUSE_POS.z, color: '#ff44ff' }
+    ]);
+    milestone('hemlig_karta', 'Den hemliga kartan',
+      'Kartan pekar mot en dold plats djupt i skogen söderut. Hitta platsen.');
+    showMessage(
+      '<b>Den hemliga kartan:</b> En grov teckning av ett skogsområde. Mitt i teckningen sitter en markering — och bredvid den, inristad med en darrande hand: <em>"Cirkeln lever. Sök stenen under rötterna."</em><br><i>En ny markering har dykt upp på minimapen!</i>',
+      10
+    );
+    return;
+  }
+  showMessage(
+    '<b>Den hemliga kartan:</b> <em>"Cirkeln lever. Sök stenen under rötterna."</em>',
+    5
+  );
+}
+
+// --- progression: serialisering för sparsystemet ------------------------------
+// Fångar allt som behövs för att fortsätta där man slutade. SaveSystem skickar
+// resultatet till Supabase; applyProgressSnapshot() återställer det vid laddning.
+function serializeProgress() {
+  return {
+    version: 2,
+    gold,
+    hasBow,
+    hasSword: player.hasSword,
+    bullseyeHits,
+    strengthBought,
+    potionUnlocked,
+    hp: player.hp,
+    maxHp: player.maxHp,
+    bullseyeRadius: world.archeryTarget ? world.archeryTarget.bullseyeRadius : null,
+    gubbe: { metOnce: gubbeMetOnce, trinketFound, mapGiven, mapReadOnce },
+    puzzle: {
+      solved: houses.puzzle.isSolved(),
+      rewardTaken: !!(houses.puzzle.reward && houses.puzzle.reward.taken)
+    },
+    eldaPotionTaken: !!houses.elda.potionTaken,
+    guardhall: {
+      unlocked: guardhallUnlocked,
+      guardiansAlive: guardians.map(g => g.alive),
+      item1Taken: !!houses.guardhall.item1.taken,
+      item2Taken: !!houses.guardhall.item2.taken,
+      altarRead: symbolRevealed
+    },
+    inventory: inventory.items.map(it => ({ ...it })),
+    quests: quests.quests.map(q => ({ ...q }))
+  };
+}
+
+function applyProgressSnapshot(s) {
+  if (!s) return;
+  gold = s.gold ?? 0;
+  hasBow = !!s.hasBow;
+  // Svärdet: utrusta/avrusta enligt sparat läge (flaggan styr om F gör något).
+  if (s.hasSword) player.equipSword();
+  else player.unequipSword();
+  bullseyeHits = s.bullseyeHits ?? 0;
+  potionUnlocked = !!s.potionUnlocked;
+  player.maxHp = s.maxHp ?? player.maxHp;
+  player.hp = s.hp ?? player.maxHp;
+  if (s.bullseyeRadius != null && world.archeryTarget) world.archeryTarget.bullseyeRadius = s.bullseyeRadius;
+
+  // Inventory & quests: ersätt råa listorna
+  inventory.items.length = 0;
+  for (const it of (s.inventory || [])) inventory.items.push({ ...it });
+  quests.quests.length = 0;
+  for (const q of (s.quests || [])) quests.quests.push({ ...q });
+
+  // Styrkedryck: permanent fart-/hopp-boost
+  strengthBought = !!s.strengthBought;
+  if (strengthBought) applyStrengthBoost();
+
+  // Gubbe-kedjan
+  const g = s.gubbe || {};
+  gubbeMetOnce = !!g.metOnce;
+  trinketFound = !!g.trinketFound;
+  mapGiven = !!g.mapGiven;
+  mapReadOnce = !!g.mapReadOnce;
+  if (trinketFound) houses.gubbe.takeTrinket();   // dölj medaljongen i huset
+
+  // Elda-dryck: om upplåst men ej tagen, lägg fram den igen
+  if (potionUnlocked && !s.eldaPotionTaken) houses.elda.spawnPotion();
+  if (s.eldaPotionTaken) houses.elda.potionTaken = true;
+
+  // Pussel-huset
+  if (s.puzzle && s.puzzle.solved) houses.puzzle.restoreSolved(!!s.puzzle.rewardTaken);
+
+  // Minimap: avslöja pussel-huset om kartan lästs
+  if (mapReadOnce) {
+    minimap.setMarkers([
+      ...buildMinimapMarkers(world),
+      { x: PUZZLE_HOUSE_POS.x, z: PUZZLE_HOUSE_POS.z, color: '#ff44ff' }
+    ]);
+  }
+
+  // Väktarhallen
+  const gh = s.guardhall || {};
+  symbolRevealed = !!gh.altarRead;
+  if (gh.unlocked) {
+    unlockGuardHall(true);                       // tyst (ingen banner vid laddning)
+    const alive = gh.guardiansAlive || [];
+    guardians.forEach((en, i) => {
+      if (alive[i] === false) { en.alive = false; en.scene.remove(en.mesh); }
+    });
+  }
+  if (gh.item1Taken) houses.guardhall.takeItem(houses.guardhall.item1);
+  if (gh.item2Taken) houses.guardhall.takeItem(houses.guardhall.item2);
+  if (symbolRevealed) {
+    houses.guardhall.markAltarRead();
+    world.awakenMonument();
+  }
+
+  updateHud();
+}
+
+// --- väktarhallen: upplåsning, vättar, symbol-avslöjande --------------------
+// Alla tre ursprungliga grottor räknas som clearade när deras loot-quests är
+// avklarade: svärdet (norr), amuletten (öster) och pilbågen (djupet).
+function allCavesCleared() {
+  return quests.isComplete('hitta_svardet')
+    && quests.isComplete('grottan_i_oster')
+    && quests.isComplete('hitta_pilbagen');
+}
+
+// Spawna de tre vaktande vättarna öster om hallen (mellan byn och dörren).
+// De patrullerar sina hempunkter och återvänder dit om spelaren backar undan.
+function spawnGuardians() {
+  if (guardians.length > 0) return;
+  const gx = GUARDHALL_POS.x, gz = GUARDHALL_POS.z;
+  // Vättarna patrullerar öster om hallen (mot byn-hållet), vid dörrsidan (+x)
+  const posts = [
+    { x: gx + 10, z: gz - 4 },
+    { x: gx + 12, z: gz },
+    { x: gx + 10, z: gz + 4 },
+  ];
+  for (const post of posts) {
+    guardians.push(new Enemy(world.scene, {
+      x: post.x, z: post.z, name: 'Hallvätte', hp: 3, speed: 2.3,
+      color: 0x5a6a2a, colliders: world.colliders, bounds: null,
+      home: post, leashRange: 11, aggroRange: 9
+    }));
+  }
+}
+
+// Lås upp hallen (dörr + vättar). silent=true vid laddning (ingen banner).
+function unlockGuardHall(silent = false) {
+  if (guardhallUnlocked) return;
+  guardhallUnlocked = true;
+  const door = world.houseDoors.find(d => d.owner === 'guardhall');
+  if (door) door.locked = false;
+  spawnGuardians();
+  if (!silent) {
+    showMessage('<b>Något har förändrats västerut.</b> Med alla tre grottor tömda har vättar samlats kring en hall bortom byn — och dess dörr är inte längre förseglad.', 6);
+  }
+}
+
+// Kallas varje världstick: lås upp när villkoret uppfylls.
+function maybeUnlockGuardHall() {
+  if (guardhallUnlocked) return;
+  if (allCavesCleared()) unlockGuardHall(false);
+}
+
 // Centraliserad menyhantering: bara en meny öppen i taget, Esc stänger meny
 // eller en öppen meddelanderuta, piltangenter + Enter/E använder valt föremål.
 const menus = new MenuManager({
@@ -184,7 +454,12 @@ const menus = new MenuManager({
   controlsEl,
   hintEl,
   onUseItem: (item) => {
-    if (item.id === 'lakedryck') return drinkPotion();
+    if (item.id === 'lakedryck')      return drinkPotion();
+    if (item.id === 'hemlig_karta')   { readMap(); return true; }
+    if (item.id === 'gubbens_medaljon') {
+      showMessage('<b>Gubbens medaljon:</b> En oval guldmedaljon med en inristad blomma. Välvårdad trots dammet — någon har burit den länge.', 5);
+      return false; // förbrukar den inte
+    }
     showMessage(`${item.icon} ${item.name} går inte att använda så.`, 2);
     return false;
   },
@@ -209,17 +484,25 @@ const PRICES = {
     rostigt_svard: 40,
     forntida_amulett: 120,
     gyllene_kalk: 250,
-    pil: 1
+    pil: 1,
+    azurbrosch: 500,
+    silverkalk: 180,
+    rubinhjarta: 320
   }
 };
 
 const ITEM_META = {
-  lakedryck:        { name: 'Läkedryck', icon: '🧪' },
-  styrkedryck:      { name: 'Styrkedryck', icon: '🟢' },
-  rostigt_svard:    { name: 'Rostigt svärd', icon: '🗡️' },
-  forntida_amulett: { name: 'Forntida amulett', icon: '📿' },
-  gyllene_kalk:     { name: 'Gyllene kalk', icon: '🏆' },
-  pil:              { name: 'Pilar', icon: '➳' }
+  lakedryck:         { name: 'Läkedryck', icon: '🧪' },
+  styrkedryck:       { name: 'Styrkedryck', icon: '🟢' },
+  rostigt_svard:     { name: 'Rostigt svärd', icon: '🗡️' },
+  forntida_amulett:  { name: 'Forntida amulett', icon: '📿' },
+  gyllene_kalk:      { name: 'Gyllene kalk', icon: '🏆' },
+  pil:               { name: 'Pilar', icon: '➳' },
+  gubbens_medaljon:  { name: 'Gubbens medaljon', icon: '🏅' },
+  hemlig_karta:      { name: 'Hemlig karta', icon: '🗺️' },
+  azurbrosch:        { name: 'Azurbröschen', icon: '💎' },
+  silverkalk:        { name: 'Silverkalk', icon: '🍶' },
+  rubinhjarta:       { name: 'Rubinhjärta', icon: '❤️‍🔥' },
 };
 
 const shop = {
@@ -367,6 +650,11 @@ const shop = {
     if (inventory.count(r.id) <= 0) return;
     inventory.remove(r.id);
     gold += r.price;
+    // Säljer man svärdet ska man inte längre kunna slåss med det. Avrusta när
+    // sista exemplaret lämnar inventoryt.
+    if (r.id === 'rostigt_svard' && inventory.count('rostigt_svard') === 0) {
+      player.unequipSword();
+    }
     const meta = ITEM_META[r.id] || { name: r.id };
     showMessage(`<b>Du sålde ${meta.name}</b> för 🪙 ${r.price}.`, 2.5);
   },
@@ -388,6 +676,14 @@ const shop = {
 window.addEventListener('keydown', e => {
   if (shop.isOpen()) { shop.handleKey(e); e.stopImmediatePropagation(); }
 }, true);
+
+// --- sparsystem (Supabase) ---
+// K öppnar spar-/laddmenyn. Bara tillåten när ingen annan meny/butik är öppen.
+const saveMenu = new SaveSystem({
+  serialize: serializeProgress,
+  apply: applyProgressSnapshot,
+  canOpen: () => !menus.isOpen() && !shop.isOpen()
+});
 
 // --- pilar ---
 function clearArrows() {
@@ -431,26 +727,42 @@ function updateArrows(delta) {
     let hit = false;
     if (dungeons[location] && a.scene === dungeons[location].sceneObj.scene) {
       for (const en of dungeons[location].enemies) {
-        if (en.alive && en.distanceTo(a.mesh.position) < 1.0) {
+        // Horisontell distans: pilen flyger högre än fiendens kropp, så en 3D-
+        // distans skulle aldrig understiga tröskeln. Ignorera y-led.
+        const ex = en.mesh.position.x - a.mesh.position.x;
+        const ez = en.mesh.position.z - a.mesh.position.z;
+        if (en.alive && Math.hypot(ex, ez) < (en.radius + 0.5)) {
           en.takeDamage(a.mesh.position);
           if (!en.alive) showMessage(`<b>${en.name} är besegrad!</b>`);
           hit = true;
           break;
         }
       }
-    } else if (location === 'world' && target && a.scene === world.scene) {
-      // Klassa träffen efter var pilen korsar tavlans plan (z = center.z),
-      // inte efter närmaste frame-avstånd – annars kan framen strax före mitten
-      // felaktigt räknas som ringträff och förbruka pilen innan den når mitten.
-      const planeZ = target.center.z;
-      const cur = a.mesh.position;
-      if (prev.z > planeZ && cur.z <= planeZ) {
-        const t = (prev.z - planeZ) / (prev.z - cur.z);
-        const hx = prev.x + (cur.x - prev.x) * t;
-        const hy = prev.y + (cur.y - prev.y) * t;
-        const radial = Math.hypot(hx - target.center.x, hy - target.center.y);
-        if (radial < target.bullseyeRadius) { registerBullseye(); hit = true; }
-        else if (radial < target.radius) { registerTargetHit(); hit = true; }
+    } else if (location === 'world' && a.scene === world.scene) {
+      // Vaktande vättar (horisontell distans, samma skäl som i grottorna)
+      for (const en of guardians) {
+        if (!en.alive) continue;
+        const ex = en.mesh.position.x - a.mesh.position.x;
+        const ez = en.mesh.position.z - a.mesh.position.z;
+        if (Math.hypot(ex, ez) < (en.radius + 0.5)) {
+          en.takeDamage(a.mesh.position);
+          if (!en.alive) showMessage(`<b>${en.name} är besegrad!</b>`);
+          hit = true;
+          break;
+        }
+      }
+      // Piltavlan på skyttebanan (plan-korsning), om pilen inte redan träffat
+      if (!hit && target) {
+        const planeZ = target.center.z;
+        const cur = a.mesh.position;
+        if (prev.z > planeZ && cur.z <= planeZ) {
+          const t = (prev.z - planeZ) / (prev.z - cur.z);
+          const hx = prev.x + (cur.x - prev.x) * t;
+          const hy = prev.y + (cur.y - prev.y) * t;
+          const radial = Math.hypot(hx - target.center.x, hy - target.center.y);
+          if (radial < target.bullseyeRadius) { registerBullseye(); hit = true; }
+          else if (radial < target.radius) { registerTargetHit(); hit = true; }
+        }
       }
     }
     if (hit || a.dist > 45) {
@@ -462,7 +774,8 @@ function updateArrows(delta) {
 
 // --- quest-/interaktionsskript (anropas av interaction.act) ---
 function talkTo(npc) {
-  if (npc === bryn) { talkToArcher(); return; }
+  if (npc === bryn)  { talkToArcher(); return; }
+  if (npc === gubbe) { talkToGubbe();  return; }
   let extra = '';
   if (npc === torvald) {
     if (!quests.has('hitta_svardet')) {
@@ -546,6 +859,31 @@ function collectPickup(pk) {
   handleLootEffect(pk.loot.id);
 }
 
+// Plocka ett av väktarhallens två värdeföremål.
+function collectHallItem(item) {
+  houses.guardhall.takeItem(item);
+  inventory.add({ id: item.id, name: item.name, icon: item.icon });
+  updateHud();
+  showMessage(`<b>Du tog ${item.name}.</b> Värdefull — kan säljas i handelsboden.`, 4);
+}
+
+// Granska altaret: avslöjar symbolens mening och väcker stenstoden i byn.
+function revealSymbol() {
+  if (!symbolRevealed) {
+    symbolRevealed = true;
+    houses.guardhall.markAltarRead();
+    world.awakenMonument();
+    milestone('symbolens_mening', 'Symbolens mening',
+      'Du tydde symbolen i väktarhallen — cirkeln genomborrad av tre streck.');
+    showMessage(
+      '<b>Altaret:</b> Symbolen — cirkeln genomborrad av tre streck — är ingen prydnad. <em>Cirkeln är byn, förseglad. De tre strecken är de tre grottorna du redan tömt: svärdet, amuletten och bågen. Tillsammans bröt deras tomhet förseglingen.</em> Långt borta i byn vaknar stenstoden — den lyser nu gyllene, och pekar mot de dörrar som ännu är förseglade.',
+      11
+    );
+    return;
+  }
+  showMessage('<b>Altaret:</b> Cirkeln är byn; de tre strecken de tre grottorna. Förseglingen är bruten — stoden i byn har vaknat.', 6);
+}
+
 function handleLootEffect(id) {
   if (id === 'rostigt_svard') {
     player.equipSword();
@@ -583,6 +921,8 @@ function handleLootEffect(id) {
 window.addEventListener('keydown', e => {
   // Handelsboden äger tangenterna helt när den är öppen (egen lyssnare i capture-fas)
   if (shop.isOpen()) return;
+  // Sparmenyn likaså (egen capture-lyssnare)
+  if (saveMenu.isOpen()) return;
   // När en meny är öppen sköter MenuManager tangenterna (val, Esc osv)
   if (menus.isOpen()) return;
   if (e.code === 'KeyG') { fireArrow(); return; }
@@ -631,11 +971,18 @@ function enterHouse(door) {
     colliders: currentHouse.colliders,
     bounds: currentHouse.bounds,
     cameraMaxY: house.cameraMaxY,
+    cameraOffset: house.cameraOffset,
     faceY: house.faceY
   });
 }
 
 function exitHouse() {
+  // Om man lämnar pusselhuset olöst: nollställ lådorna så man aldrig kan
+  // fastna permanent med en låda intryckt mot en vägg. (Löst pussel rörs ej –
+  // belöningen ligger kvar att hämta.)
+  if (currentHouse && currentHouse.reset && !currentHouse.isSolved?.()) {
+    currentHouse.reset();
+  }
   location = 'world';
   clearArrows();
   world.scene.add(player.mesh);
@@ -668,6 +1015,23 @@ function onFirstDungeonDamage() {
 function tickWorld(delta) {
   world.updateSun(player.mesh.position);
   const pos = player.mesh.position;
+
+  // Lås upp väktarhallen när de tre grottorna är clearade
+  maybeUnlockGuardHall();
+
+  // Vaktande vättar: patrullera/jaga med leash, samt strid
+  for (const en of guardians) {
+    if (!en.alive) continue;
+    en.update(delta, pos);
+    if (player.attackActive && en.distanceTo(pos) < 2.3) {
+      en.takeDamage(pos);
+      if (!en.alive) showMessage(`<b>${en.name} är besegrad!</b>`);
+    }
+    if (en.alive && en.distanceTo(pos) < 1.2 && player.takeDamage(en.mesh.position)) {
+      updateHud();
+      if (player.hp <= 0) { respawn(); return; }
+    }
+  }
 
   for (const npc of npcs) {
     if (npc.distanceTo(pos) < 3.5) {
@@ -723,15 +1087,87 @@ function tickHouseInterior(delta) {
     showBook = bookInRange;
     showPotion = potionInRange;
   }
+  // Trinket i gubbens hus
+  const dTrinket = (currentHouse === houses.gubbe && houses.gubbe.trinket &&
+    !houses.gubbe.trinketTaken)
+    ? pos.distanceTo(houses.gubbe.trinketPos) : Infinity;
+  // Karta i gubbens hus (dyker upp efter att gubben minns)
+  const dMap = (currentHouse === houses.gubbe && houses.gubbe.map &&
+    houses.gubbe.map.visible && !houses.gubbe.mapTaken)
+    ? pos.distanceTo(houses.gubbe.mapPos) : Infinity;
+
   if (showBook) {
     interaction = { prompt: 'Tryck E för att läsa boken', act: () => showMessage(currentHouse.bookText, 8) };
   } else if (showPotion) {
     interaction = { prompt: 'Tryck E för att plocka upp flaskan', act: takePotionFromHouse };
+  } else if (dTrinket < 2.0) {
+    interaction = { prompt: 'Tryck E för att plocka upp medaljonen', act: collectTrinket };
+  } else if (dMap < 2.2) {
+    interaction = { prompt: 'Tryck E för att ta kartan', act: collectMap };
   } else if (currentHouse.shopPos && pos.distanceTo(currentHouse.shopPos) < 2.8) {
     if (currentHouse === houses.manor) {
       interaction = { prompt: 'Tryck E för att handla (köp / sälj)', act: () => shop.show() };
     } else {
       interaction = { prompt: 'Tryck E för att köpa 10 pilar (gratis)', act: buyArrows };
+    }
+  }
+
+  // Pussel-huset: låd-push (E) och belönings-pickup
+  if (currentHouse === houses.puzzle) {
+    const puzzle = houses.puzzle;
+    if (puzzle.reward && !puzzle.reward.taken &&
+        pos.distanceTo(puzzle.reward.position) < 2.0) {
+      interaction = {
+        prompt: 'Tryck E för att plocka upp Azurbröschen',
+        act: () => {
+          puzzle.reward.taken = true;
+          puzzle.scene.remove(puzzle.reward.group);
+          inventory.add({ id: 'azurbrosch', name: 'Azurbröschen', icon: '💎' });
+          updateHud();
+          milestone('pussel_klart', 'Pusslet löst', 'Du löste lådpusslet och fick Azurbröschen.');
+          showMessage('<b>Azurbröschen!</b> En strålande blå brosch infattad i guld. Den är värd en förmögenhet — säkerligen värd 💎 500 mynt hos köpmannen.', 6);
+        }
+      };
+    } else if (!puzzle.isSolved()) {
+      // Återställningsplatta: putta-fri zon där spelaren kan nollställa lådorna.
+      if (puzzle.resetPos && pos.distanceTo(puzzle.resetPos) < 1.4) {
+        interaction = {
+          prompt: 'Tryck E för att återställa lådorna',
+          act: () => {
+            if (puzzle.reset()) showMessage('<b>Lådorna återställda.</b> Pusslet börjar om.', 2.5);
+          }
+        };
+      } else {
+        // Kolla om spelaren är nära en låda och erbjud push
+        const pCol = Math.round((pos.x - (-13)) / 2 - 0.5);
+        const pRow = Math.round((0 - pos.z) / 2 - 0.5);
+        const nearBox = puzzle.boxes.some(b => {
+          if (b.removed) return false;
+          const dc = Math.abs(b.col - pCol), dr = Math.abs(b.row - pRow);
+          return dc + dr === 1;
+        });
+        if (nearBox && !interaction) {
+          interaction = {
+            prompt: 'Tryck E för att putta lådan',
+            act: () => { puzzle.tryPush(pos); }
+          };
+        }
+      }
+    }
+  }
+
+  // Väktarhallen: två värdeföremål + symbol-altaret
+  if (currentHouse === houses.guardhall) {
+    const hall = houses.guardhall;
+    const d1 = (!hall.item1.taken) ? pos.distanceTo(hall.item1.position) : Infinity;
+    const d2 = (!hall.item2.taken) ? pos.distanceTo(hall.item2.position) : Infinity;
+    const dAltar = pos.distanceTo(hall.altarPos);
+    if (d1 < 2.0) {
+      interaction = { prompt: `Tryck E för att ta ${hall.item1.name}`, act: () => collectHallItem(hall.item1) };
+    } else if (d2 < 2.0) {
+      interaction = { prompt: `Tryck E för att ta ${hall.item2.name}`, act: () => collectHallItem(hall.item2) };
+    } else if (dAltar < 2.6) {
+      interaction = { prompt: 'Tryck E för att granska altaret', act: revealSymbol };
     }
   }
 
@@ -787,7 +1223,7 @@ function animate() {
   const delta = clock.getDelta();
   if (bowCooldown > 0) bowCooldown -= delta;
 
-  player.setInputEnabled(!menus.isOpen() && !shop.isOpen());
+  player.setInputEnabled(!menus.isOpen() && !shop.isOpen() && !saveMenu.isOpen());
   player.update(delta);
 
   activeNPC = null;

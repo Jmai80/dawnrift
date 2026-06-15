@@ -3,7 +3,8 @@ import * as THREE from 'three';
 export class Enemy {
   constructor(scene, {
     x, z, name = 'Grottvätte', hp = 3, speed = 2.1, scale = 1,
-    color = 0x7a2222, colliders = [], bounds = null
+    color = 0x7a2222, colliders = [], bounds = null,
+    home = null, leashRange = 11, aggroRange = 9
   }) {
     this.name = name;
     this.scene = scene;
@@ -16,6 +17,12 @@ export class Enemy {
     this.colliders = colliders;
     this.bounds = bounds;
     this.radius = 0.55 * scale;
+    // Vakt-beteende: om `home` anges patrullerar fienden där, jagar spelaren bara
+    // inom aggroRange OCH så länge spelaren är inom leashRange från hemmet, och
+    // söker sig annars tillbaka hem. Utan `home` gäller det gamla beteendet.
+    this.home = home ? { x: home.x, z: home.z } : null;
+    this.leashRange = leashRange;
+    this.aggroRange = aggroRange;
 
     this.mesh = new THREE.Group();
     this.bodyMat = new THREE.MeshLambertMaterial({ color });
@@ -44,6 +51,29 @@ export class Enemy {
     if (this.hitFlash > 0) {
       this.hitFlash -= delta;
       this.bodyMat.color.setHex(this.hitFlash > 0 ? 0xffffff : this.baseColor);
+    }
+
+    if (this.home) {
+      // Vakt: jaga bara om spelaren är nära OCH inte har dragit sig för långt
+      // från vaktposten. Annars traska tillbaka hem och patrullera.
+      const p = this.mesh.position;
+      const dPlayer = p.distanceTo(playerPos);
+      const playerFromHome = Math.hypot(playerPos.x - this.home.x, playerPos.z - this.home.z);
+      const dHome = Math.hypot(p.x - this.home.x, p.z - this.home.z);
+      if (dPlayer < this.aggroRange && playerFromHome < this.leashRange && dPlayer > 1.0) {
+        const dir = playerPos.clone().sub(p).setY(0).normalize();
+        p.addScaledVector(dir, this.speed * delta);
+        this.mesh.lookAt(playerPos.x, p.y, playerPos.z);
+      } else if (dHome > 0.4) {
+        const dir = new THREE.Vector3(this.home.x - p.x, 0, this.home.z - p.z).normalize();
+        p.addScaledVector(dir, this.speed * delta);
+        this.mesh.lookAt(this.home.x, p.y, this.home.z);
+      } else {
+        // Vid posten: vänd blicken österut (mot byn) och vänta.
+        this.mesh.lookAt(p.x + 1, p.y, p.z);
+      }
+      this.resolveCollisions();
+      return;
     }
 
     const dist = this.mesh.position.distanceTo(playerPos);

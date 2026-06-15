@@ -138,3 +138,53 @@ export function addSunflower(scene, x, z, scale = 1.0) {
   g.position.set(x, y, z);
   scene.add(g);
 }
+// Gerbera – lila blomma med platta kronblad som strålar ut från en mörk mitt.
+// Signaturen följer addFlower/addSunflower: scene, x, z, scale (valfri).
+// Rotation och liten slumpmässig storleksvariation sätts internt, precis som
+// i originalfunktionen – blommor behöver inte deterministiska positioner
+// eftersom de inte har kollision eller quest-beroenden.
+export function addGerbera(scene, x, z, scale = 1.0) {
+  const g = new THREE.Group();
+
+  const stem = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.04, 0.04, 0.8, 8),
+    new THREE.MeshLambertMaterial({ color: 0x2d5a27 })
+  );
+  stem.position.y = 0.4;
+  g.add(stem);
+
+  const petalMat = new THREE.MeshLambertMaterial({
+    color: 0xba55d3,
+    side: THREE.DoubleSide
+  });
+  const petalGeo = new THREE.SphereGeometry(0.25, 8, 6);
+  petalGeo.scale(1, 0.25, 2);
+  const petalCount = 16;
+  for (let i = 0; i < petalCount; i++) {
+    const angle = (i / petalCount) * Math.PI * 2;
+    const petal = new THREE.Mesh(petalGeo, petalMat);
+    petal.position.set(
+      Math.cos(angle) * 0.18,
+      0.8,
+      Math.sin(angle) * 0.18
+    );
+    petal.rotation.y = -angle;
+    petal.rotation.x = 0.3;
+    g.add(petal);
+  }
+
+  const center = new THREE.Mesh(
+    new THREE.SphereGeometry(0.1, 12, 8),
+    new THREE.MeshLambertMaterial({ color: 0x4a2c2a })
+  );
+  center.position.y = 0.8;
+  g.add(center);
+
+  const y = getHeight(x, z);
+  g.position.set(x, y, z);
+  // Liten intern storleksvariation (×0.7–1.3) multiplicerad med scale-parametern,
+  // så att man kan styra grovstorleken uppifrån utan att förlora naturlig variation.
+  g.scale.setScalar(scale * (0.7 + Math.random() * 0.6));
+  g.rotation.y = Math.random() * Math.PI * 2;
+  scene.add(g);
+}

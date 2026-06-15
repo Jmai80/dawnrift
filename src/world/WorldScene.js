@@ -1,10 +1,16 @@
 import * as THREE from 'three';
 import { getHeight, createTerrain } from './terrain/Terrain.js';
-import { addTree, addFlower, addSunflower } from './props/vegetation.js';
-import { addHouse, addManor, addTowerHouse } from './props/houses.js';
+import { addTree, addFlower, addSunflower, addGerbera } from './props/vegetation.js';
+import { addHouse, addManor, addTowerHouse, addGubbeHus, addPuzzleHus, addGuardHall } from './props/houses.js';
 import { addCave } from './props/caves.js';
 import { addShootingRange } from './props/shootingRange.js';
 import { TREE_POSITIONS } from '../content/treePositions.js';
+
+// Gubbens hus: söder om byn, lite öster om hans vandringsring (0, 60).
+// Exporteras så att npcs.js kan läsa den utan cirkelimport.
+export const GUBBE_HOUSE_POS  = { x: 18, z: 82 };
+export const PUZZLE_HOUSE_POS = { x: -8, z: 155 }; // söder om gubbens hus
+export const GUARDHALL_POS    = { x: -148, z: 0 };  // nära världens västra kant
 
 export class WorldScene {
   constructor() {
@@ -43,6 +49,24 @@ export class WorldScene {
     addFlower(this.scene, 2.8, 1.4, 1.0);
     addFlower(this.scene, -2.2, 2.6, 0.65);
 
+    // Gerberor (lila) i tre klungor för att bryta av mot de röda blommorna
+    // vid stenstoden och de gula solrosarna vid herrgården.
+    // Klunge 1: nordost om stenstoden, längs stigen mot Eldas hus.
+    addGerbera(this.scene,  6,  -6);
+    addGerbera(this.scene,  8,  -4);
+    addGerbera(this.scene,  5,  -9, 1.2);
+    addGerbera(this.scene,  9, -10, 0.85);
+    // Klunge 2: söder om byn – längs gubbens vandringsring (0, 60).
+    addGerbera(this.scene,  4,  42);
+    addGerbera(this.scene, -3,  45, 1.1);
+    addGerbera(this.scene,  7,  50, 0.9);
+    addGerbera(this.scene, -6,  52, 1.15);
+    addGerbera(this.scene,  2,  56);
+    // Klunge 3: väster om Torvalds hus, mot skogen.
+    addGerbera(this.scene, -32, 18, 1.0);
+    addGerbera(this.scene, -35, 22, 0.9);
+    addGerbera(this.scene, -30, 25, 1.1);
+
     addHouse(this.scene, this.colliders, this.houseDoors, 15, -20, { owner: 'elda' });
     addHouse(this.scene, this.colliders, this.houseDoors, -25, 10, { owner: 'torvald' });
     addHouse(this.scene, this.colliders, this.houseDoors, 30, 25, { locked: true });
@@ -57,6 +81,32 @@ export class WorldScene {
   this.colliders,
   this.houseDoors,
   18, -48);
+
+    // Gubbens slitna lilla hus söder om byn
+    addGubbeHus(this.scene, this.colliders, this.houseDoors,
+      GUBBE_HOUSE_POS.x, GUBBE_HOUSE_POS.z);
+
+    // Pussel-huset: den hemliga platsen kartan visar. Längre söderut,
+    // en bit bort från allt annat. Blommor i varierande storlek utanför.
+    const ph = PUZZLE_HOUSE_POS;
+    addPuzzleHus(this.scene, this.colliders, this.houseDoors, ph.x, ph.z);
+    // Blommor framför entrén (södra sidan, z + 12 = framsidan)
+    addGerbera   (this.scene, ph.x - 7,   ph.z + 13.5, 1.3);
+    addGerbera   (this.scene, ph.x - 5,   ph.z + 14.2, 0.8);
+    addGerbera   (this.scene, ph.x + 6,   ph.z + 13.8, 1.1);
+    addGerbera   (this.scene, ph.x + 8,   ph.z + 13.2, 0.9);
+    addSunflower (this.scene, ph.x - 9,   ph.z + 12.5, 1.2);
+    addSunflower (this.scene, ph.x + 9.5, ph.z + 12.8, 1.0);
+    addSunflower (this.scene, ph.x - 6.5, ph.z + 15.0, 0.85);
+    addFlower    (this.scene, ph.x - 3,   ph.z + 13.6, 0.9);
+    addFlower    (this.scene, ph.x + 2,   ph.z + 14.0, 1.1);
+    addFlower    (this.scene, ph.x + 4,   ph.z + 13.3, 0.75);
+    addFlower    (this.scene, ph.x - 1,   ph.z + 15.1, 1.2);
+    addFlower    (this.scene, ph.x + 7,   ph.z + 15.5, 0.8);
+
+    // Väktarhallen rakt västerut (dörr på östra sidan, mot byn)
+    addGuardHall(this.scene, this.colliders, this.houseDoors,
+      GUARDHALL_POS.x, GUARDHALL_POS.z);
 
     addSunflower(this.scene, -8,   -41, 1.0);
     addSunflower(this.scene, -5,   -41, 1.15);
@@ -115,6 +165,23 @@ export class WorldScene {
     this.monumentPos = new THREE.Vector3(0, y0, 0);
     this.colliders.push({ x: 0, z: 0, radius: 2.4 });
     this.monumentText = '<b>Stenstoden:</b> En sliten obelisk reser sig mitt i byn. På framsidan lyser samma symbol som i Torvalds bok — en cirkel genomborrad av tre streck. Stenen känns märkligt varm. Något verkar vänta på att väckas.';
+    this._monumentGroup = g;
+    this._monumentAwake = false;
+  }
+
+  // Väcks när spelaren avslöjat symbolens mening i väktarhallens altare.
+  // Stoden skiftar från cyan till gyllene sken och texten uppdateras.
+  awakenMonument() {
+    if (this._monumentAwake) return;
+    this._monumentAwake = true;
+    if (this.monumentGlow) { this.monumentGlow.color.set(0xffcc44); this.monumentGlow.distance = 20; }
+    // Färga symbolens lysande streck gyllene (de basmaterial som är cyan)
+    this._monumentGroup.traverse(o => {
+      if (o.material && o.material.color && o.material.color.getHex() === 0x66ddff) {
+        o.material.color.set(0xffcc44);
+      }
+    });
+    this.monumentText = '<b>Stenstoden (vaken):</b> Symbolen lyser nu gyllene. Du förstår den äntligen — cirkeln är byn, förseglad, och de tre strecken var de tre grottorna du tömt. Stoden har vaknat, och något i den tycks peka vidare mot de förseglade dörrarna i byn.';
   }
 
   updateSun(p) {
@@ -127,7 +194,8 @@ export class WorldScene {
     this.sunTarget.updateMatrixWorld();
 
     if (this.monumentGlow) {
-      this.monumentGlow.intensity = 4 + Math.sin(Date.now() * 0.002) * 2;
+      const base = this._monumentAwake ? 7 : 4;
+      this.monumentGlow.intensity = base + Math.sin(Date.now() * 0.002) * 2;
     }
   }
 }

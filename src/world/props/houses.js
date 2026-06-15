@@ -162,6 +162,249 @@ export function addManor(scene, colliders, houseDoors, mx, mz) {
   addGrass(scene, mx - half - 0.8, mz + half + 0.8);
 }
 
+// Gubbens hus – litet, slitet och lite skevt. Skilt från byn, lite längre söderut
+// (placerat av WorldScene). Samma dörrkoppling som de andra husen men med owner:'gubbe'.
+// Exteriören är mer nedgången: blekat virke, skev takvinkel, inga fina fönster.
+// Pussel-huset: tegelbyggnad, färgglatt tak, blommor utanför entrén.
+// Större än gubbens hus men mindre än herrgården. Marken under huset plattas
+// ut i Terrain.js, så huset står plant. En stensockel (som herrgårdens) och en
+// trappa upp till dörren ger en tydlig, plan entré.
+// Väktarhallen rakt västerut: en lång, låg hall med annorlunda proportion än
+// byns små kvadratiska hus. Dörren sitter på östra sidan (mot byn), så att
+// spelaren måste passera de vaktande vättarna öster om hallen för att nå in.
+// Dörren börjar låst; Game.js låser upp den när alla tre grottor är clearade.
+export function addGuardHall(scene, colliders, houseDoors, x, z) {
+  const groundY = getHeight(x, z);
+  const halfX = 4, halfZ = 8;   // 8 bred (x) × 16 lång (z) – avlång hall
+
+  const wallMat = new THREE.MeshLambertMaterial({ color: 0x6f6a60 }); // grå sten
+  const roofMat = new THREE.MeshLambertMaterial({ color: 0x33414a }); // mörkt skiffer
+  const darkWood = new THREE.MeshLambertMaterial({ color: 0x241c12 });
+
+  const g = new THREE.Group();
+
+  // Låg sockel
+  const base = new THREE.Mesh(new THREE.BoxGeometry(halfX * 2 + 1, 1.0, halfZ * 2 + 1),
+    new THREE.MeshLambertMaterial({ color: 0x55504a }));
+  base.position.y = 0.0;
+
+  // Låga väggar (lägre än de vanliga husen → annan proportion)
+  const walls = new THREE.Mesh(new THREE.BoxGeometry(halfX * 2, 4.5, halfZ * 2), wallMat);
+  walls.position.y = 2.75;
+  walls.castShadow = true; walls.receiveShadow = true;
+
+  // Avlångt tak: en fyrsidig kon utdragen längs z (longhouse-rygg)
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(6.2, 2.6, 4), roofMat);
+  roof.position.y = 6.3;
+  roof.rotation.y = Math.PI / 4;
+  roof.scale.set(0.75, 1, 1.7);   // smal i x, lång i z
+  roof.castShadow = true;
+
+  g.add(base, walls, roof);
+  g.position.set(x, groundY, z);
+  scene.add(g);
+
+  // Dörr på ÖSTRA sidan (+x), mot byn – en BoxGeometry-nisch i väggen
+  // (PlaneGeometry flyter utanför väggytan och ser konstig ut utifrån).
+  const doorInset = new THREE.Mesh(
+    new THREE.BoxGeometry(0.25, 2.8, 1.8),
+    new THREE.MeshLambertMaterial({ color: 0x241c12 })
+  );
+  doorInset.position.set(x + halfX - 0.05, groundY + 1.4, z);
+  scene.add(doorInset);
+  // Stenkarm runt dörren
+  const frameMat = new THREE.MeshLambertMaterial({ color: 0x4a4640 });
+  for (const dz of [-1.05, 1.05]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.45, 3.2, 0.3), frameMat);
+    post.position.set(x + halfX - 0.05, groundY + 1.6, z + dz);
+    scene.add(post);
+  }
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.35, 2.7), frameMat);
+  lintel.position.set(x + halfX - 0.05, groundY + 3.05, z);
+  scene.add(lintel);
+
+  // Smala höga gluggar längs långsidorna (annan fönsterkaraktär än byns hus)
+  const slitMat = new THREE.MeshLambertMaterial({
+    color: 0x9ab0c0, emissive: 0x1a2630, emissiveIntensity: 0.7,
+    transparent: true, opacity: 0.8
+  });
+  for (const sz of [-4.5, 0, 4.5]) {
+    for (const sx of [-halfX - 0.04, halfX + 0.04]) {
+      const slit = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 1.6), slitMat);
+      slit.position.set(x + sx, groundY + 3.0, z + sz);
+      slit.rotation.y = Math.PI / 2;
+      scene.add(slit);
+    }
+  }
+
+  // Dörren börjar låst (Game.js låser upp efter tre clearade grottor)
+  houseDoors.push({ x: x + halfX, z, owner: 'guardhall', locked: true });
+
+  // Kollision: rätblocks-perimeter
+  addWallLine(colliders, x - halfX, z - halfZ, x + halfX, z - halfZ);
+  addWallLine(colliders, x - halfX, z + halfZ, x + halfX, z + halfZ);
+  addWallLine(colliders, x - halfX, z - halfZ, x - halfX, z + halfZ);
+  addWallLine(colliders, x + halfX, z - halfZ, x + halfX, z + halfZ);
+}
+
+export function addPuzzleHus(scene, colliders, houseDoors, x, z) {
+  const groundY = getHeight(x, z);   // ≈ 0 tack vare utplattningen
+  const half = 8;    // halva bredden – byggnaden är 16×24 (djupare än bred)
+  const halfD = 12;
+  const PLINTH = 0.8; // sockelns höjd över marken; husets golvplan
+
+  const brickMat = new THREE.MeshLambertMaterial({ color: 0x9a5c38 });
+  const mortarMat = new THREE.MeshLambertMaterial({ color: 0xb8a890 });
+  const roofMat  = new THREE.MeshLambertMaterial({ color: 0x2d7a9a }); // blågrön
+  const roofTrim = new THREE.MeshLambertMaterial({ color: 0xe84040 }); // röd list
+  const stoneMat = new THREE.MeshLambertMaterial({ color: 0x6f6a60 });
+  const darkWood = new THREE.MeshLambertMaterial({ color: 0x2c1e0e });
+
+  const g = new THREE.Group();
+
+  // Stensockel: större än väggarna, sträcker sig ned under marken (fyller ev.
+  // glipa i kanten av utplattningen) och höjer husets golvplan PLINTH över marken.
+  const found = new THREE.Mesh(
+    new THREE.BoxGeometry(half * 2 + 1.4, 2.6, halfD * 2 + 1.4),
+    stoneMat
+  );
+  found.position.y = PLINTH - 1.3; // topp vid +PLINTH, botten ~1.8 under mark
+  found.castShadow = true;
+  found.receiveShadow = true;
+
+  // Väggar (tegelfärgade) – vilar på sockeln
+  const walls = new THREE.Mesh(new THREE.BoxGeometry(half * 2, 6, halfD * 2), brickMat);
+  walls.position.y = PLINTH + 3;
+  walls.castShadow = true;
+  walls.receiveShadow = true;
+
+  // Tegelmönster: horisontella fogar
+  for (let hgt = PLINTH + 0.4; hgt < PLINTH + 6; hgt += 0.55) {
+    const fog = new THREE.Mesh(new THREE.BoxGeometry(half * 2 + 0.02, 0.07, halfD * 2 + 0.02), mortarMat);
+    fog.position.y = hgt;
+    g.add(fog);
+  }
+
+  // Tak
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(13.5, 3.5, 4), roofMat);
+  roof.position.y = PLINTH + 7.75;
+  roof.rotation.y = Math.PI / 4;
+  roof.castShadow = true;
+  const trim = new THREE.Mesh(new THREE.BoxGeometry(half * 2 + 0.4, 0.3, halfD * 2 + 0.4), roofTrim);
+  trim.position.y = PLINTH + 5.95;
+
+  g.add(found, walls, roof, trim);
+  g.position.set(x, groundY, z);
+  scene.add(g);
+
+  // Dörr: centrerad på södra sidan, börjar vid sockeltoppen
+  const door = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 3.4),
+    new THREE.MeshLambertMaterial({ color: 0x3a2a12 }));
+  door.position.set(x, groundY + PLINTH + 1.7, z + halfD + 0.05);
+  scene.add(door);
+  for (const dx of [-1.15, 1.15]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.22, 3.7, 0.22), darkWood);
+    post.position.set(x + dx, groundY + PLINTH + 1.85, z + halfD + 0.1);
+    scene.add(post);
+  }
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.22, 0.22), darkWood);
+  lintel.position.set(x, groundY + PLINTH + 3.55, z + halfD + 0.1);
+  scene.add(lintel);
+
+  // Trappa upp till dörren: 4 stensteg från marken upp till sockeltoppen.
+  // Stegen ligger framför södra väggen (z växer söderut). Rent visuella –
+  // marken är platt så spelaren går rakt fram in i dörrens närzon.
+  const STEPS = 4;
+  const stepW = 3.0, stepRun = 0.55, stepRise = PLINTH / STEPS;
+  for (let i = 0; i < STEPS; i++) {
+    // Steg i: lägst längst ut, högst närmast dörren
+    const topY = (i + 1) * stepRise;        // ovansidans höjd
+    const depth = stepRun * (STEPS - i);     // nedersta steget sticker ut längst
+    const stepZ = z + halfD + stepRun * (STEPS - i) / 2 + 0.05;
+    const step = new THREE.Mesh(
+      new THREE.BoxGeometry(stepW, topY, depth),
+      stoneMat
+    );
+    step.position.set(x, groundY + topY / 2, stepZ);
+    step.castShadow = true;
+    step.receiveShadow = true;
+    scene.add(step);
+  }
+
+  houseDoors.push({ x, z: z + halfD, owner: 'puzzle', locked: false });
+
+  // Fönster på framsidan (flankerande dörren) – höjda med sockeln
+  addBrightWindow(scene, x - 4.5, groundY + PLINTH + 3.5, z + halfD + 0.07, 0);
+  addBrightWindow(scene, x + 4.5, groundY + PLINTH + 3.5, z + halfD + 0.07, 0);
+  addBrightWindow(scene, x - half - 0.07, groundY + PLINTH + 3.5, z, Math.PI / 2);
+  addBrightWindow(scene, x + half + 0.07, groundY + PLINTH + 3.5, z, Math.PI / 2);
+
+  // Kollision: rätblocks-perimeter
+  addWallLine(colliders, x - half, z + halfD, x + half, z + halfD);
+  addWallLine(colliders, x - half, z - halfD, x + half, z - halfD);
+  addWallLine(colliders, x - half, z - halfD, x - half, z + halfD);
+  addWallLine(colliders, x + half, z - halfD, x + half, z + halfD);
+}
+
+export function addGubbeHus(scene, colliders, houseDoors, x, z) {
+  const groundY = getHeight(x, z);
+  const house = new THREE.Group();
+
+  // Blekt, sprucket virke
+  const wallMat = new THREE.MeshLambertMaterial({ color: 0x7a6448 });
+  const roofMat = new THREE.MeshLambertMaterial({ color: 0x4a3428 });
+  const darkWood = new THREE.MeshLambertMaterial({ color: 0x3c2e1a });
+
+  const walls = new THREE.Mesh(new THREE.BoxGeometry(5.5, 3.5, 5.5), wallMat);
+  walls.position.y = 1.75;
+  walls.castShadow = true;
+  walls.receiveShadow = true;
+
+  // Taket är lite snett och lågt – en kon roterad ±skev
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(4.3, 2.5, 4), roofMat);
+  roof.position.y = 4.25;
+  roof.rotation.y = Math.PI / 4 + 0.12; // lite skev
+  roof.rotation.z = 0.03;               // lutar svagt
+  roof.castShadow = true;
+
+  house.add(walls, roof);
+  house.position.set(x, groundY, z);
+  scene.add(house);
+  colliders.push({ x, z, radius: 4.2 });
+
+  // Dörr – lite lägre och mörkare än de vanliga husen
+  const door = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.1, 2.0),
+    new THREE.MeshLambertMaterial({ color: 0x2a1e10 })
+  );
+  door.position.set(x, groundY + 1.0, z + 2.77);
+  scene.add(door);
+  houseDoors.push({ x, z: z + 2.8, owner: 'gubbe', locked: false });
+
+  // Ett litet grumligt fönster (självlysande men svagt och lite smutsigt)
+  const glassMat = new THREE.MeshLambertMaterial({
+    color: 0x8aaa99, emissive: 0x1a2f28, emissiveIntensity: 0.6,
+    transparent: true, opacity: 0.75
+  });
+  const winFrame = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.14), darkWood);
+  winFrame.position.set(x + 1.6, groundY + 2.1, z + 2.78);
+  const winGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.55), glassMat);
+  winGlass.position.set(x + 1.6, groundY + 2.1, z + 2.84);
+  scene.add(winFrame, winGlass);
+
+  // Skräpiga detaljer utanför: en välta tunna och lite ogräs
+  addBarrel(scene, colliders, x - 2.0, z + 2.6);
+  addGrass(scene, x + 2.2, z + 2.8);
+  addGrass(scene, x - 2.3, z + 2.4);
+  addGrass(scene, x + 2.0, z - 2.0);
+
+  // En skev stolpe utan funktion – hänger bara mot husväggen
+  const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.8, 0.1), darkWood);
+  post.position.set(x - 2.4, groundY + 0.9, z + 2.6);
+  post.rotation.z = 0.18;
+  scene.add(post);
+}
+
 export function addWallLine(colliders, ax, az, bx, bz, radius = 0.8, spacing = 1.3) {
   const len = Math.hypot(bx - ax, bz - az);
   const n = Math.max(1, Math.ceil(len / spacing));

@@ -16,6 +16,15 @@ export function getHeight(x, z) {
   const rd = Math.hypot(x - 78, z + 21);
   h *= THREE.MathUtils.smoothstep(rd, 24, 44);
 
+  // Platta ut marken runt pussel-huset (den hemliga platsen, PUZZLE_HOUSE_POS
+  // i WorldScene.js = (-8, 155)) så att huset, dörren och trappan står plant.
+  const pd = Math.hypot(x + 8, z - 155);
+  h *= THREE.MathUtils.smoothstep(pd, 18, 40);
+
+  // Platta ut marken för väktarhallen nära världens västra kant (-148, 0).
+  const gd = Math.hypot(x + 148, z);
+  h *= THREE.MathUtils.smoothstep(gd, 14, 32);
+
   return h;
 }
 

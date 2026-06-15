@@ -1,5 +1,10 @@
 import { NPC } from '../entities/NPC.js';
 import { RANGE } from '../world/props/shootingRange.js';
+import { GUBBE_HOUSE_POS } from '../world/WorldScene.js';
+
+// Gubbens vandringsring – exporteras så att Game.js kan läsa centrumet för
+// sin quest-logik (t.ex. "promenera till huset söder om här").
+export const GUBBE_RING = { x: 0, z: 60, radius: 5, speed: 1 };
 
 // Skapar byns NPC:er, registrerar deras colliders i världen och slår på skuggor.
 // Returnerar dem både namngivna (för quest-skript) och som lista (för loopar).
@@ -31,15 +36,17 @@ export function createNPCs(world) {
   // söder om byns mitt (söder = +z; jfr kompassens S nedåt på minimapen).
   // Ringens centrum ligger ungefär mitt emellan byns mitt (0,0) och minimapens
   // södra kant. Mansformad som Torvald/spelaren men med hatt och stora glasögon.
-  const GUBBE_RING = { x: 0, z: 60, radius: 5, speed: 1 };
   const gubbe = new NPC(world.scene, {
-    x: GUBBE_RING.x + GUBBE_RING.radius, z: GUBBE_RING.z, // starta på ringen
+    x: GUBBE_RING.x + GUBBE_RING.radius, z: GUBBE_RING.z,
     name: 'Den förvirrade gubben', color: 0x6b5a7a, variant: 'oldman',
     wander: GUBBE_RING,
     lines: [
-      'Va? Vem där? Jag... jag letade visst efter något. Eller någon?',
-      'Cirkeln med tre streck... jag har sett den. Men var? Var var det nu igen?',
-      'Gå inte vilse som jag, unge vän. Eller gör det. Jag minns inte vilket jag skulle säga.'
+      // Rad 0 – första mötet: han vet att han letar men vet inte efter vad
+      'Va? Vem är du? Förlåt... jag... jag letar efter något. Något viktigt. Det borde finnas i mitt hus — sydost härifrån — men jag minns inte vad det är.',
+      // Rad 1 – efter att spelaren hittat prylen (sätts dynamiskt av Game.js)
+      'Du hittade den! Min medaljon... min hustrus medaljon. Plötsligt minns jag allt. Vänta — ta den här kartan. Den leder till en plats som ingen utom jag känner till.',
+      // Rad 2 – efter att kartan delats ut
+      'Kartan pekar mot en plats djupt i skogen söderut. Var försiktig. Jag vet inte vad som väntar där nu.',
     ]
   });
 

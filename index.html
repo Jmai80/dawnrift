@@ -7,7 +7,7 @@
     body { margin: 0; overflow: hidden; background: #000; }
     canvas { display: block; }
 
-    #prompt, #dialog, #inventory, #questlog, #controls, #shop {
+    #prompt, #dialog, #inventory, #questlog, #controls, #shop, #savemenu {
       position: fixed;
       left: 50%;
       transform: translateX(-50%);
@@ -22,13 +22,13 @@
     #prompt { bottom: 120px; font-size: 14px; }
     #dialog { bottom: 40px; font-size: 17px; max-width: 600px; }
 
-    #inventory, #questlog, #controls, #shop {
+    #inventory, #questlog, #controls, #shop, #savemenu {
       top: 50%;
       transform: translate(-50%, -50%);
       min-width: 280px;
       font-size: 16px;
     }
-    #inventory h3, #questlog h3, #controls h3, #shop h3 { margin: 0 0 10px; color: #b89b5e; }
+    #inventory h3, #questlog h3, #controls h3, #shop h3, #savemenu h3 { margin: 0 0 10px; color: #b89b5e; }
     #inventory div, #questlog div { padding: 5px 0; }
     #questlog .done { color: #8a8; }
     #questlog small { color: #ccb; }
@@ -47,6 +47,20 @@
     #shop .sect { color: #b89b5e; margin: 10px 0 4px; font-size: 13px; letter-spacing: 0.04em; }
     #shop .disabled { opacity: 0.45; }
     #shop p { text-align: center; margin: 12px 0 0; color: #ccb; font-size: 13px; }
+
+    #savemenu { min-width: 420px; max-width: 460px; }
+    #savemenu .shoprow {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 8px; border-radius: 4px;
+    }
+    #savemenu .shoprow .nm { flex: 1; }
+    #savemenu .pr { font-family: monospace; font-size: 13px; }
+    #savemenu button {
+      background: #b89b5e; color: #1a1712; border: none; border-radius: 4px;
+      padding: 4px 10px; font-family: Georgia, serif; cursor: pointer; font-size: 14px;
+    }
+    #savemenu button:hover { background: #d4b87a; }
+    #savemenu p { text-align: center; margin: 12px 0 0; color: #ccb; font-size: 13px; }
 
     #controls { min-width: 340px; }
     #controls table { border-collapse: collapse; width: 100%; }
@@ -88,6 +102,7 @@
   <div id="inventory"></div>
   <div id="questlog"></div>
   <div id="shop"></div>
+  <div id="savemenu"></div>
 
   <div id="controls">
     <h3>Dawnrift — Kontroller</h3>
@@ -103,6 +118,7 @@
       <tr><td>R</td><td>Drick läkedryck</td></tr>
       <tr><td>Q</td><td>Uppdragslogg</td></tr>
       <tr><td>H</td><td>Visa / dölj denna ruta</td></tr>
+      <tr><td>K</td><td>Spara / ladda (checkpoints)</td></tr>
       <tr><td>Esc</td><td>Stäng öppen meny</td></tr>
     </table>
     <p>Tryck <b>H</b> eller <b>Esc</b> för att stänga och börja äventyret</p>

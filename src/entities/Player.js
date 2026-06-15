@@ -90,13 +90,18 @@ export class Player {
     this.maxHp = 5;
     this.hp = this.maxHp;
 
-    // Ljud för svärdsslag
+    // Ljud för svärdsslag och skada
     this.slashSound = new Audio('/audio/swordSlash.mp3');
     this.slashSound.volume = 0.6;
+    this.hurtSound = new Audio('/audio/hurt.mp3');
+    this.hurtSound.volume = 0.7;
 
     this.inputEnabled = true;
     this.cameraMaxY = 4.4; // tak för kamerahöjd inomhus (höjs i flervånings-torn)
     this.cameraGroundClearance = 2.2; // håll kameran så här mycket ovanför marken under den
+    // Kamerans position relativt spelaren (roteras med blickriktningen). Kan
+    // sättas per scen via teleport-env, t.ex. en högre ovanifrån-vy i pusselrum.
+    this.cameraOffset = new THREE.Vector3(0, 4, 8);
 
     window.addEventListener('keydown', e => {
       if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
@@ -121,6 +126,12 @@ export class Player {
     this.swordPivot.visible = true;
   }
 
+  unequipSword() {
+    this.hasSword = false;
+    this.swordPivot.visible = false;
+    this.attackTimer = 0;
+  }
+
   attack() {
     if (!this.hasSword || this.attackCooldown > 0) return;
     this.attackTimer = 0.3;
@@ -133,6 +144,9 @@ export class Player {
     if (this.invulnTimer > 0) return false;
     this.hp--;
     this.invulnTimer = 1;
+    // Spela hurt-ljud (samma autoplay-robusthet som swordSlash)
+    this.hurtSound.currentTime = 0;
+    this.hurtSound.play().catch(() => {});
     const dir = this.mesh.position.clone().sub(fromPos).setY(0).normalize();
     this.mesh.position.addScaledVector(dir, 1.5);
     return true;
@@ -268,6 +282,8 @@ export class Player {
     this.colliders = env.colliders || [];
     this.bounds = env.bounds || null;
     this.cameraMaxY = (env.cameraMaxY != null) ? env.cameraMaxY : 4.4;
+    if (env.cameraOffset) this.cameraOffset.set(env.cameraOffset.x, env.cameraOffset.y, env.cameraOffset.z);
+    else this.cameraOffset.set(0, 4, 8);  // återställ till standard utomhus/hus
     if (env.faceY != null) this.mesh.rotation.y = env.faceY;
     this.isFalling = false;
     this.isJumping = false;
@@ -290,7 +306,7 @@ export class Player {
       return;
     }
 
-    const offset = new THREE.Vector3(0, 4, 8).applyQuaternion(this.mesh.quaternion);
+    const offset = this.cameraOffset.clone().applyQuaternion(this.mesh.quaternion);
     const target = this.mesh.position.clone().add(offset);
 
     if (this.bounds) {
