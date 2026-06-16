@@ -104,12 +104,13 @@ export class Player {
     this.cameraOffset = new THREE.Vector3(0, 4, 8);
 
     window.addEventListener('keydown', e => {
+      if (!e.code) return; // vissa events (IME/autofyll) saknar code -> ignorera
       if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
       if (!this.inputEnabled) return;
       this.keys[e.code] = true;
       if (e.code === 'KeyF') this.attack();
     });
-    window.addEventListener('keyup', e => this.keys[e.code] = false);
+    window.addEventListener('keyup', e => { if (e.code) this.keys[e.code] = false; });
   }
 
   setInputEnabled(on) {

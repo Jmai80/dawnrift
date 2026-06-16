@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { getHeight, createTerrain } from './terrain/Terrain.js';
-import { addTree, addFlower, addSunflower, addGerbera } from './props/vegetation.js';
-import { addHouse, addManor, addTowerHouse, addNorthTower, addGubbeHus, addPuzzleHus, addGuardHall } from './props/houses.js';
+import { addTree, addFlower, addSunflower, addGerbera, addPlanting } from './props/vegetation.js';
+import { addHouse, addManor, addTowerHouse, addNorthTower, addGubbeHus, addPuzzleHus, addGuardHall, addSymbolHouse } from './props/houses.js';
 import { addCave } from './props/caves.js';
 import { addShootingRange } from './props/shootingRange.js';
 import { TREE_POSITIONS } from '../content/treePositions.js';
@@ -17,6 +17,7 @@ export class WorldScene {
     this.colliders = [];
     this.caves = [];
     this.houseDoors = [];
+    this.plantingBeds = []; // för framtida 'gräv här'-funktion
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x87b5d8);
@@ -124,10 +125,33 @@ export class WorldScene {
     }
 
     addCave(this.scene, this.caves, 10, -120);
-    // Norra tornet – långt norrut, bortom grottan, nära världens norra kant.
-    addNorthTower(this.scene, this.colliders, this.houseDoors, 10, -175);
     addCave(this.scene, this.caves, 140, 10);
     addCave(this.scene, this.caves, -100, 115);
+
+    // Fyra väderstreckstorn (samma switchback-interiör, NorthTowerScene, men
+    // olika färg + owner). Norr (grön), söder (sandstensbrun), öster (rödaktig),
+    // väster (blågrå). Alla nära världens kant i sitt väderstreck.
+    addNorthTower(this.scene, this.colliders, this.houseDoors, 10, -175,
+      { owner: 'tower2', stone: 0x5f6f63, roof: 0x33474a, wood: 0x3a4030, base: 0x4c544a });
+    addNorthTower(this.scene, this.colliders, this.houseDoors, 10, 175,
+      { owner: 'tower3', stone: 0x8a7a5c, roof: 0x5a4634, wood: 0x4a3a26, base: 0x6a5c44 });
+    addNorthTower(this.scene, this.colliders, this.houseDoors, 175, -10,
+      { owner: 'tower4', stone: 0x8a5f5a, roof: 0x5a3330, wood: 0x432826, base: 0x6a4844 });
+    addNorthTower(this.scene, this.colliders, this.houseDoors, -175, 30,
+      { owner: 'tower5', stone: 0x5c6a7a, roof: 0x33424a, wood: 0x2a343a, base: 0x44525a });
+
+    // Fyra planteringsbäddar halvvägs mellan tornen (diagonala hörn), lika nära
+    // världskanten som tornen (~175 från centrum). Blandning av blommor + större
+    // stenar; bäddarnas lägen sparas i plantingBeds för en kommande gräv-funktion.
+    const kp = 175 / Math.SQRT2; // ~123.7 per axel => hypot ~175
+    addPlanting(this.scene, this.colliders,  kp, -kp, this.plantingBeds); // NÖ (mellan norr & öster)
+    addPlanting(this.scene, this.colliders,  kp,  kp, this.plantingBeds); // SÖ (mellan söder & öster)
+    addPlanting(this.scene, this.colliders, -kp,  kp, this.plantingBeds); // SV (mellan söder & väster)
+    addPlanting(this.scene, this.colliders, -kp, -kp, this.plantingBeds); // NV (mellan norr & väster)
+
+    // Symbolhuset: avlägset, mystiskt stenhus i kartans tomma nordvästra trakt.
+    // Inrymmer minnes-/symbolpusslet.
+    addSymbolHouse(this.scene, this.colliders, this.houseDoors, -60, -160);
 
     // Skyttebana öster om tornet, norr om östra grottan (på utplattad mark).
     this.archeryTarget = addShootingRange(this.scene, this.colliders, this.houseDoors);

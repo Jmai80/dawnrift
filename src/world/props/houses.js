@@ -550,22 +550,26 @@ export function addTowerHouse(scene, colliders, houseDoors, x, z) {
   addWallLine(colliders, x + half, z - half, x + half, z + half);
 }
 
-// === LÄGG TILL DETTA I src/world/props/houses.js ===
-// Klistra in funktionen nedan i slutet av filen (efter addTowerHouse).
-// Den är en kopia av addTowerHouse men med svalare grön sten och owner:'tower2',
-// så att den kopplas till NorthTowerScene (en egen interiör, ej det gamla tornet).
+// Väderstreckstorn – kopia av addTowerHouse, men färg och owner via options.
+// Används för alla fyra torn (norr/söder/öster/väster); de delar samma
+// interiör-klass NorthTowerScene men registreras med var sin owner-nyckel
+// (tower2..tower5) i Game.js, precis som husen återanvänder HouseScene.
+// opts = { owner, stone, roof, wood, base } – alla valfria.
+export function addNorthTower(scene, colliders, houseDoors, x, z, opts = {}) {
+  const owner  = opts.owner != null ? opts.owner : 'tower2';
+  const stoneC = opts.stone != null ? opts.stone : 0x5f6f63;
+  const roofC  = opts.roof  != null ? opts.roof  : 0x33474a;
+  const woodC  = opts.wood  != null ? opts.wood  : 0x3a4030;
+  const baseC  = opts.base  != null ? opts.base  : 0x4c544a;
 
-// Norra tornet – nästan identiskt med addTowerHouse men i svalare grön sten så
-// att spelaren ser skillnad på avstånd. Går att gå in i (owner: 'tower2').
-export function addNorthTower(scene, colliders, houseDoors, x, z) {
   const y = getHeight(x, z);
   const half = 2.8;            // halva bredden -> 5.6 × 5.6 fotavtryck
   const height = 18;
 
-  const stoneMat = new THREE.MeshLambertMaterial({ color: 0x5f6f63 }); // grönaktig sten
-  const roofMat  = new THREE.MeshLambertMaterial({ color: 0x33474a }); // mörkare blågrönt tak
-  const woodMat  = new THREE.MeshLambertMaterial({ color: 0x3a4030 });
-  const baseMat  = new THREE.MeshLambertMaterial({ color: 0x4c544a });
+  const stoneMat = new THREE.MeshLambertMaterial({ color: stoneC });
+  const roofMat  = new THREE.MeshLambertMaterial({ color: roofC });
+  const woodMat  = new THREE.MeshLambertMaterial({ color: woodC });
+  const baseMat  = new THREE.MeshLambertMaterial({ color: baseC });
 
   const tower = new THREE.Group();
 
@@ -616,8 +620,8 @@ export function addNorthTower(scene, colliders, houseDoors, x, z) {
   doorGroup.position.set(x, y, z + half + 0.02);
   scene.add(doorGroup);
 
-  // Olåst och kopplad till norra torninteriören (NorthTowerScene via houses['tower2']).
-  houseDoors.push({ x, z: z + half, owner: 'tower2', locked: false });
+  // Olåst, kopplad till torninteriören via houses[owner].
+  houseDoors.push({ x, z: z + half, owner, locked: false });
 
   // --- Ljusa fönster uppför framsidan ---
   for (const wy of [5.2, 9.2, 13.2]) {
@@ -626,9 +630,80 @@ export function addNorthTower(scene, colliders, houseDoors, x, z) {
   addBrightWindow(scene, x + half + 0.05, y + 11, z, Math.PI / 2);
   addBrightWindow(scene, x - half - 0.05, y + 11, z, Math.PI / 2);
 
-  // --- Kollision: sluten rätblocks-perimeter ---
+  // --- Kollision: sluten rätblocks-perimeter (som herrgården) ---
   addWallLine(colliders, x - half, z + half, x + half, z + half);
   addWallLine(colliders, x - half, z - half, x + half, z - half);
   addWallLine(colliders, x - half, z - half, x - half, z + half);
   addWallLine(colliders, x + half, z - half, x + half, z + half);
+}
+
+// Symbolhuset – ett avlägset, mörkt stenhus i kartans tomma nordvästra trakter.
+// Inrymmer minnes-/symbolpusslet (SymbolPuzzleHouseScene, owner: 'symbolpuzzle').
+// Utseendet är medvetet kärvt och mystiskt: mörk sten, lågt tak, och en
+// glödande symbol (cirkel + tre streck) ovanför dörren.
+export function addSymbolHouse(scene, colliders, houseDoors, x, z) {
+  const y = getHeight(x, z);
+  const w = 9, d = 9, h = 5.5;
+
+  const stoneMat = new THREE.MeshLambertMaterial({ color: 0x35302e });
+  const roofMat  = new THREE.MeshLambertMaterial({ color: 0x241f24 });
+  const trimMat  = new THREE.MeshLambertMaterial({ color: 0x4a4440 });
+
+  const g = new THREE.Group();
+
+  const base = new THREE.Mesh(new THREE.BoxGeometry(w + 0.6, 1.0, d + 0.6), trimMat);
+  base.position.y = -0.4; base.receiveShadow = true;
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), stoneMat);
+  body.position.y = h / 2; body.castShadow = true; body.receiveShadow = true;
+
+  // lågt valmat tak
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(w * 0.82, 2.6, 4), roofMat);
+  roof.position.y = h + 1.3; roof.rotation.y = Math.PI / 4; roof.castShadow = true;
+
+  g.add(base, body, roof);
+  g.position.set(x, y, z);
+  scene.add(g);
+
+  // dörr på framsidan (mot +z)
+  const doorGroup = new THREE.Group();
+  const panel = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.5, 2.6),
+    new THREE.MeshLambertMaterial({ color: 0x15110e })
+  );
+  panel.position.set(0, 1.3, 0.02);
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(1.9, 3.0, 0.2), trimMat);
+  frame.position.set(0, 1.5, -0.02);
+  doorGroup.add(frame, panel);
+  doorGroup.position.set(x, y, z + d / 2 + 0.02);
+  scene.add(doorGroup);
+
+  // glödande symbol ovanför dörren: ring + tre streck
+  const symGroup = new THREE.Group();
+  const glow = new THREE.MeshBasicMaterial({ color: 0x66ffd8 });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.08, 10, 24), glow);
+  symGroup.add(ring);
+  for (let i = 0; i < 3; i++) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.5, 0.1), glow);
+    bar.rotation.z = (i - 1) * 0.5;
+    symGroup.add(bar);
+  }
+  symGroup.position.set(x, y + 3.6, z + d / 2 + 0.12);
+  scene.add(symGroup);
+  const symLight = new THREE.PointLight(0x66ffd8, 6, 10);
+  symLight.position.set(x, y + 3.6, z + d / 2 + 0.6);
+  scene.add(symLight);
+
+  // ljusa fönster
+  addBrightWindow(scene, x - w / 2 - 0.05, y + 2.6, z, Math.PI / 2);
+  addBrightWindow(scene, x + w / 2 + 0.05, y + 2.6, z, Math.PI / 2);
+
+  // dörrkoppling
+  houseDoors.push({ x, z: z + d / 2, owner: 'symbolpuzzle', locked: false });
+
+  // kollisionsperimeter
+  addWallLine(colliders, x - w / 2, z + d / 2, x + w / 2, z + d / 2);
+  addWallLine(colliders, x - w / 2, z - d / 2, x + w / 2, z - d / 2);
+  addWallLine(colliders, x - w / 2, z - d / 2, x - w / 2, z + d / 2);
+  addWallLine(colliders, x + w / 2, z - d / 2, x + w / 2, z + d / 2);
 }

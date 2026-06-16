@@ -3,6 +3,7 @@ import { WorldScene } from '../world/WorldScene.js';
 import { HouseScene } from '../world/HouseScene.js';
 import { TowerScene } from '../world/TowerScene.js';
 import { NorthTowerScene } from '../world/NorthTowerScene.js';
+import { SymbolPuzzleHouseScene } from '../world/SymbolPuzzleHouseScene.js';
 import { RangeShopScene } from '../world/RangeShopScene.js';
 import { ManorShopScene } from '../world/ManorShopScene.js';
 import { PuzzleHouseScene } from '../world/PuzzleHouseScene.js';
@@ -42,25 +43,37 @@ minimap.setMarkers(buildMinimapMarkers(world));
 const music = new MusicSystem();
 music.add('world', '/audio/world-theme.mp3');
 music.add('dungeon', '/audio/dungeon-theme.mp3');
-music.add('house', '/audio/house-theme.mp3');
 
 player.mesh.traverse(o => { if (o.isMesh) o.castShadow = true; });
+
+// Dyrgriparna i de fyra väderstreckstornen. Var och en är unik, säljbar i
+// handelsboden och respawnar aldrig (plock-flaggan sparas per torn).
+const TOWER_TREASURES = {
+  tower2: { id: 'stjarnkristall', name: 'Stjärnkristall', icon: '🔱', color: 0x88ffd8 },
+  tower3: { id: 'solgyllene_agg', name: 'Solgyllene ägg', icon: '🥚', color: 0xffd24a },
+  tower4: { id: 'gryningsrubin',  name: 'Gryningsrubin',  icon: '💠', color: 0xff5a6a },
+  tower5: { id: 'skymningssafir', name: 'Skymningssafir', icon: '🔷', color: 0x5a8aff }
+};
 
 const houses = {
   elda:     new HouseScene({ owner: 'elda' }),
   torvald:  new HouseScene({ owner: 'torvald' }),
   gubbe:    new HouseScene({ owner: 'gubbe' }),
   tower:    new TowerScene(),
-  tower2:   new NorthTowerScene(),
+  tower2:   new NorthTowerScene({ treasure: TOWER_TREASURES.tower2 }),
+  tower3:   new NorthTowerScene({ treasure: TOWER_TREASURES.tower3 }),
+  tower4:   new NorthTowerScene({ treasure: TOWER_TREASURES.tower4 }),
+  tower5:   new NorthTowerScene({ treasure: TOWER_TREASURES.tower5 }),
   rangeshop:new RangeShopScene(),
   manor:    new ManorShopScene(),
   puzzle:   new PuzzleHouseScene(),
-  guardhall:new GuardHallScene()
+  guardhall:new GuardHallScene(),
+  symbolpuzzle: new SymbolPuzzleHouseScene()
 };
 
 // --- innehåll (data i src/content/) ---
 const dungeons = createDungeons(world);
-const { elda, torvald, bryn, gubbe, npcs } = createNPCs(world);
+const { elda, torvald, bryn, gubbe, vandraren, eremiten, npcs } = createNPCs(world);
 
 // --- kamera ---
 const camera = new THREE.PerspectiveCamera(
@@ -123,11 +136,17 @@ function giveArrows(n) {
   for (let i = 0; i < n; i++) inventory.add({ id: 'pil', name: 'Pilar', icon: '➳' });
 }
 
-// Köp pilar i Bryns butik. Gratis tills vidare – vi har inga mynt än.
+// Köp 10 pilar i Bryns butik för PRICES.buy.pilar10 guld.
 function buyArrows() {
+  const price = PRICES.buy.pilar10;
+  if (gold < price) {
+    showMessage(`Du har inte råd. 10 pilar kostar ${price} guld.`, 2.5);
+    return;
+  }
+  gold -= price;
   giveArrows(10);
   updateHud();
-  showMessage('<b>Du köpte 10 pilar.</b> Gratis tills vidare — vi har inga mynt än.', 3);
+  showMessage(`<b>Du köpte 10 pilar för ${price} guld.</b>`, 3);
 }
 
 function showMessage(html, seconds = 4) {
@@ -303,6 +322,72 @@ function readMap() {
   );
 }
 
+// Hur många av de fyra tornens dyrgripar spelaren skördat (0–4).
+function towerTreasureCount() {
+  return ['tower2', 'tower3', 'tower4', 'tower5']
+    .filter(k => houses[k] && houses[k].treasureTaken).length;
+}
+
+// Vandraren (NV): före stoden vaknat bara småprat; efter blir han en vägvisare
+// som pekar mot de fyra hörnen (tornen) och berättar om sin vakt.
+function talkToWanderer() {
+  if (!symbolRevealed) {
+    vandraren.setLines([
+      'Hej hej. Jag bara vilar benen en stund.',
+      'Det är långt till allt häruppe. Men jag trivs i tystnaden.'
+    ]);
+  } else {
+    const n = towerTreasureCount();
+    if (n < 4) {
+      vandraren.setLines([
+        'Du väckte stoden... då är det sant. Jag har vaktat den här vägen längre än jag minns.',
+        'Lyssna: stoden talar om <em>fyra hörn</em>. Fyra torn vid världens kant, vart och ett med en dyrgrip.',
+        `Samla dem alla. Du har funnit ${n} av 4. Sök i norr, söder, öster och väster.`
+      ]);
+    } else {
+      vandraren.setLines([
+        'Alla fyra dyrgriparna! Då är hörnen vakta — förseglingen tunnas ut.',
+        'Tala med eremiten i sydöst. Han vet vad som fattas innan det sista huset kan öppnas.'
+      ]);
+    }
+  }
+  dialogEl.innerHTML = `<b>${vandraren.name}:</b> ${vandraren.nextLine()}`;
+  dialogEl.style.display = 'block';
+}
+
+// Eremiten (SÖ): efter stoden vaknat ger han den sista ledtråden om hur det
+// låsta huset bryts — fyra dyrgripar + symbolens nyckel.
+function talkToHermit() {
+  if (!symbolRevealed) {
+    eremiten.setLines([
+      'Hej hej. Få ser hela vägen hit ut.',
+      'Vinden bär hit allt som viskas i byn. Jag lyssnar bara.'
+    ]);
+  } else {
+    const n = towerTreasureCount();
+    const hasKey = inventory.has && inventory.has('symbolens_nyckel');
+    if (n < 4) {
+      eremiten.setLines([
+        'Stoden har vaknat, ja. Men byns försegling har två lås, inte ett.',
+        'Det andra låset är de fyra hörnen. Hämta tornens dyrgripar först — kom åter när du bär alla fyra.'
+      ]);
+    } else if (!hasKey) {
+      eremiten.setLines([
+        'Fyra dyrgripar i din väska. Nästan framme.',
+        'Det fattas en sak: <em>Symbolens nyckel</em>, gömd bakom minnets prov i symbolhuset i nordväst.',
+        'Med nyckeln och de fyra dyrgriparna brister den sista förseglingen — det låsta huset i byn öppnar sig.'
+      ]);
+    } else {
+      eremiten.setLines([
+        'Du bär allt: de fyra dyrgriparna och Symbolens nyckel.',
+        'Gå till det förseglade huset i byn. Det väntar inte längre på dig — det väntar <em>med</em> dig.'
+      ]);
+    }
+  }
+  dialogEl.innerHTML = `<b>${eremiten.name}:</b> ${eremiten.nextLine()}`;
+  dialogEl.style.display = 'block';
+}
+
 // --- progression: serialisering för sparsystemet ------------------------------
 // Fångar allt som behövs för att fortsätta där man slutade. SaveSystem skickar
 // resultatet till Supabase; applyProgressSnapshot() återställer det vid laddning.
@@ -323,6 +408,10 @@ function serializeProgress() {
       solved: houses.puzzle.isSolved(),
       rewardTaken: !!(houses.puzzle.reward && houses.puzzle.reward.taken)
     },
+    symbolpuzzle: {
+      solved: houses.symbolpuzzle.isSolved(),
+      rewardTaken: !!(houses.symbolpuzzle.reward && houses.symbolpuzzle.reward.taken)
+    },
     eldaPotionTaken: !!houses.elda.potionTaken,
     guardhall: {
       unlocked: guardhallUnlocked,
@@ -332,7 +421,16 @@ function serializeProgress() {
       altarRead: symbolRevealed
     },
     inventory: inventory.items.map(it => ({ ...it })),
-    quests: quests.quests.map(q => ({ ...q }))
+    quests: quests.quests.map(q => ({ ...q })),
+    // Dyrgripar i väderstreckstornen: plock-flagga per torn (respawnar aldrig).
+    towers: {
+      tower2: !!houses.tower2.treasureTaken,
+      tower3: !!houses.tower3.treasureTaken,
+      tower4: !!houses.tower4.treasureTaken,
+      tower5: !!houses.tower5.treasureTaken
+    },
+    // Planteringsbäddar: en bool per bädd (true = uppgrävd, respawnar aldrig).
+    dugBeds: world.plantingBeds.map(b => !!b.dug)
   };
 }
 
@@ -373,6 +471,12 @@ function applyProgressSnapshot(s) {
 
   // Pussel-huset
   if (s.puzzle && s.puzzle.solved) houses.puzzle.restoreSolved(!!s.puzzle.rewardTaken);
+  // Symbolpusslet: betrakta det som löst ENBART om belöningen faktiskt togs.
+  // (Ett sparat 'solved=true' utan tagen belöning är ett motsägelsefullt/föråldrat
+  // tillstånd – behandla det som olöst så pusslet spelas normalt.)
+  if (s.symbolpuzzle && s.symbolpuzzle.solved && s.symbolpuzzle.rewardTaken) {
+    houses.symbolpuzzle.restoreSolved(true);
+  }
 
   // Minimap: avslöja pussel-huset om kartan lästs
   if (mapReadOnce) {
@@ -398,6 +502,17 @@ function applyProgressSnapshot(s) {
     houses.guardhall.markAltarRead();
     world.awakenMonument();
   }
+
+  // Väderstreckstornen: dölj de dyrgripar som redan plockats.
+  const tw = s.towers || {};
+  for (const key of ['tower2', 'tower3', 'tower4', 'tower5']) {
+    if (tw[key] && houses[key] && !houses[key].treasureTaken) houses[key].takeTreasure();
+  }
+
+  // Planteringsbäddar: återställ uppgrävt utseende för redan grävda bäddar.
+  // (Återställer bara visuellt + flaggan – ger ingen ny loot.)
+  const db = s.dugBeds || [];
+  world.plantingBeds.forEach((bed, i) => { if (db[i] && !bed.dug) bed.dig(); });
 
   updateHud();
 }
@@ -463,6 +578,12 @@ const menus = new MenuManager({
       showMessage('<b>Gubbens medaljon:</b> En oval guldmedaljon med en inristad blomma. Välvårdad trots dammet — någon har burit den länge.', 5);
       return false; // förbrukar den inte
     }
+    // Läsbara lappar (t.ex. ledtrådarna ur planteringsbäddarna): visa texten,
+    // förbruka inte föremålet.
+    if (item.note) {
+      showMessage(`<b>${item.icon} ${item.name}:</b> ${item.note}`, 9);
+      return false;
+    }
     showMessage(`${item.icon} ${item.name} går inte att använda så.`, 2);
     return false;
   },
@@ -480,7 +601,8 @@ const menus = new MenuManager({
 const PRICES = {
   buy: {
     lakedryck: 35,
-    styrkedryck: 1000
+    styrkedryck: 1000,
+    pilar10: 50          // 10 pilar för 50 guld hos Bryn
   },
   sell: {
     lakedryck: 15,
@@ -490,7 +612,12 @@ const PRICES = {
     pil: 1,
     azurbrosch: 500,
     silverkalk: 180,
-    rubinhjarta: 320
+    rubinhjarta: 320,
+    stjarnkristall: 280,
+    solgyllene_agg: 340,
+    gryningsrubin: 300,
+    skymningssafir: 320,
+    symbolens_nyckel: 450
   }
 };
 
@@ -506,6 +633,11 @@ const ITEM_META = {
   azurbrosch:        { name: 'Azurbröschen', icon: '💎' },
   silverkalk:        { name: 'Silverkalk', icon: '🍶' },
   rubinhjarta:       { name: 'Rubinhjärta', icon: '❤️‍🔥' },
+  stjarnkristall:    { name: 'Stjärnkristall', icon: '🔱' },
+  solgyllene_agg:    { name: 'Solgyllene ägg', icon: '🥚' },
+  gryningsrubin:     { name: 'Gryningsrubin', icon: '💠' },
+  skymningssafir:    { name: 'Skymningssafir', icon: '🔷' },
+  symbolens_nyckel:  { name: 'Symbolens nyckel', icon: '🗝️' },
 };
 
 const shop = {
@@ -779,6 +911,8 @@ function updateArrows(delta) {
 function talkTo(npc) {
   if (npc === bryn)  { talkToArcher(); return; }
   if (npc === gubbe) { talkToGubbe();  return; }
+  if (npc === vandraren) { talkToWanderer(); return; }
+  if (npc === eremiten)  { talkToHermit();   return; }
   let extra = '';
   if (npc === torvald) {
     if (!quests.has('hitta_svardet')) {
@@ -868,6 +1002,102 @@ function collectHallItem(item) {
   inventory.add({ id: item.id, name: item.name, icon: item.icon });
   updateHud();
   showMessage(`<b>Du tog ${item.name}.</b> Värdefull — kan säljas i handelsboden.`, 4);
+}
+
+// Plocka dyrgripen i ett väderstreckstorn. currentHouse är tornet; vilken
+// dyrgrip avgörs av dörrens owner (tower2..tower5). Sätter plock-flaggan
+// (sparas, respawnar aldrig), lägger föremålet i inventoryt, uppdaterar en
+// quest och påminner om att man kan spara med K.
+function collectTowerTreasure() {
+  const house = currentHouse;
+  if (!house || !house.treasureConfig || house.treasureTaken) return;
+  const tc = house.treasureConfig;
+  const ownerKey = houseReturnDoor ? houseReturnDoor.owner : null;
+
+  house.takeTreasure();
+  inventory.add({ id: tc.id, name: tc.name, icon: tc.icon });
+  updateHud();
+
+  // Quest: en milstolpe per torn + en samlingsquest som visar hur många kvar.
+  const towerNames = { tower2: 'norra', tower3: 'södra', tower4: 'östra', tower5: 'västra' };
+  const dir = towerNames[ownerKey] || 'okänt';
+  milestone('torn_' + (ownerKey || tc.id), `Dyrgrip: ${tc.name}`,
+    `Du hämtade ${tc.name} ur det ${dir} tornet.`);
+
+  // Samlingsquest: räkna hur många av de fyra dyrgriparna man har skördat.
+  const taken = Object.values(houses).filter(h => h && h.treasureConfig && h.treasureTaken).length;
+  quests.add({ id: 'tornens_dyrgripar', title: 'Tornens dyrgripar',
+    text: `Hämta dyrgriparna ur de fyra väderstreckstornen. (${taken}/4)` });
+  // Uppdatera texten (QuestSystem.add ersätter inte text på befintlig quest, så
+  // sätt den direkt om quest-objektet finns).
+  const q = quests.quests.find(x => x.id === 'tornens_dyrgripar');
+  if (q) q.text = `Hämta dyrgriparna ur de fyra väderstreckstornen. (${taken}/4)`;
+  if (taken >= 4) quests.complete('tornens_dyrgripar');
+
+  showMessage(`<b>Du tog ${tc.name}!</b> En sällsynt dyrgrip — kan säljas i handelsboden. ` +
+    `(${taken}/4 torn skördade.) Tryck K för att spara dina framsteg.`, 6);
+}
+
+// --- planteringsbäddar: gräv-funktion --------------------------------------
+// Fyra ledtråd-lappar, en per bädd. Var och en pekar mot det förseglade tredje
+// huset i byn (30,25) på sitt eget sätt – ren flavor/foreshadowing inför
+// finalen. Lappen läggs i inventoryt (📜, ej säljbar) och kan läsas via
+// onUseItem (fältet `note` triggar läsningen). Hörnet bestäms av bäddens läge.
+const DIG_NOTES = {
+  'NÖ': {
+    id: 'lapp_tradgardsmastaren', name: 'Riven dagbokssida', icon: '📜',
+    note: 'Trädgårdsmästarens spruckna handstil: ”…jorden minns vad byn glömt. Det tredje huset stängdes den natt symbolen brann. De sa att fem ljus måste återvända innan dörren vågar öppnas igen.”'
+  },
+  'SÖ': {
+    id: 'lapp_barnteckning', name: 'Barnteckning', icon: '📜',
+    note: 'En barnslig teckning på förmultnat papper: ett litet hus mitt i byn med ett överkryssat dörrhål, och ovanför det en cirkel genomborrad av tre streck. Bredvid står det krafsat: ”farfar får inte gå in”.'
+  },
+  'SV': {
+    id: 'lapp_lantmatare', name: 'Lantmätarlapp', icon: '📜',
+    note: 'En blekt mätlapp: ”Hus vid 30, 25 — inritat men onämnt. Kartorna vägrar ge det namn. Förseglat utifrån, inte inifrån. Den som bär gryningens fyra skatter äger rätten att lösa låset.”'
+  },
+  'NV': {
+    id: 'lapp_versrad', name: 'Versrad på näver', icon: '📜',
+    note: 'Ord ristade i näver: ”När stjärna, ägg, rubin och safir åter glöder, och nyckeln med cirkeln vrids — då, och först då, brister byns sista försegling. Sök huset som väntar med dig, inte på dig.”'
+  }
+};
+
+// Gräv i en planteringsbädd. Ändrar bäddens utseende (via bed.dig()), ger en
+// liten slumpad belöning (modest guld + ibland en läkedryck) och ALLTID en
+// hörnspecifik ledtråd-lapp. Varje bädd kan bara grävas en gång (bed.dug).
+function digBed(bed) {
+  if (!bed || bed.dug) return;
+  bed.dig();   // visuell omvandling till uppgrävd bädd
+
+  // Hörn utifrån läget (x>0 = öster, z<0 = norr).
+  const corner = bed.x > 0 ? (bed.z < 0 ? 'NÖ' : 'SÖ')
+                           : (bed.z < 0 ? 'NV' : 'SV');
+
+  // Slumpad, måttlig loot – inget som rubbar balansen.
+  const goldGain = 10 + Math.floor(Math.random() * 31); // 10–40
+  gold += goldGain;
+  let potionLine = '';
+  if (Math.random() < 0.4) {
+    inventory.add({ id: 'lakedryck', name: 'Läkedryck', icon: '🧪', usable: true });
+    potionLine = ' och en <b>läkedryck</b>';
+  }
+
+  // Ledtråd-lappen (alltid). `note`-fältet gör att den kan läsas i inventoryt.
+  const nd = DIG_NOTES[corner];
+  inventory.add({ id: nd.id, name: nd.name, icon: nd.icon, usable: true, note: nd.note });
+  updateHud();
+
+  showMessage(
+    `<b>Du gräver i bädden.</b> Spaden stöter på något: <b>🪙 ${goldGain} guld</b>${potionLine}, ` +
+    `och en hoprullad lapp (${nd.icon} ${nd.name}). Öppna inventoryt (I) och använd lappen för att läsa den.`,
+    7
+  );
+
+  // Milstolpe när alla fyra bäddar grävts.
+  if (world.plantingBeds.every(b => b.dug)) {
+    milestone('baddarna_gravda', 'Byns fyra bäddar',
+      'Du grävde upp alla fyra planteringsbäddarna och samlade ledtrådarna mot det förseglade huset.');
+  }
 }
 
 // Granska altaret: avslöjar symbolens mening och väcker stenstoden i byn.
@@ -968,6 +1198,9 @@ function enterHouse(door) {
     showMessage('<b>Du kliver in i handelsboden.</b> Köpmannen bakom disken nickar mot dig.', 4);
   }
   currentHouse.scene.add(player.mesh);
+  // Symbolrummet: nollställ auto-start-flaggan vid varje nytt besök så pusslet
+  // (om-)startar en gång när man kliver in, men inte i en oändlig loop.
+  if (house === houses.symbolpuzzle) house._autoStarted = false;
   const sp = house.entryPos || { x: 0, z: 2.5 };
   player.teleport(sp.x, sp.z, {
     groundFn: house.groundFn || (() => 0),
@@ -985,6 +1218,14 @@ function exitHouse() {
   // belöningen ligger kvar att hämta.)
   if (currentHouse && currentHouse.reset && !currentHouse.isSolved?.()) {
     currentHouse.reset();
+  }
+  // Symbolpusslet vid utträde: om olöst -> nollställ till idle (startar om vid
+  // nästa besök). Om redan löst men mitt i ett omspel -> sätt tillbaka till
+  // 'win' så omspels-knappen erbjuds rent vid återbesök.
+  if (currentHouse === houses.symbolpuzzle) {
+    const sp = houses.symbolpuzzle;
+    if (!sp.isSolved()) sp.abortToIdle();
+    else sp.phase = 'win';
   }
   location = 'world';
   clearArrows();
@@ -1049,11 +1290,41 @@ function tickWorld(delta) {
     interaction = { prompt: 'Tryck E för att granska stoden', act: () => showMessage(world.monumentText, 8) };
   }
 
-  // Grottingång (övergång – sluta ticka världen denna frame)
+  // Grottingång – endast ÄKTA ingång räknas. Spelaren måste stå nära själva
+  // öppningen (den svarta cirkeln, som vetter mot byn) OCH faktiskt vara på
+  // öppningens framsida. Att gå in i klippans bak- eller sidovägg gör inget.
   for (const key of Object.keys(dungeons)) {
     const ent = dungeons[key].entrance;
-    const dx = pos.x - ent.x, dz = pos.z - ent.z;
-    if (dx * dx + dz * dz < 25) { enterDungeon(key); return; }
+    // Öppningens läge + utåtriktning (från caves.js). Falla tillbaka på center.
+    const ox = (ent.openX != null) ? ent.openX : ent.x;
+    const oz = (ent.openZ != null) ? ent.openZ : ent.z;
+    const dx = pos.x - ox, dz = pos.z - oz;
+    const distSq = dx * dx + dz * dz;
+    if (distSq < 5.76) { // inom 2.4 enheter från själva öppningen
+      if (ent.dirX != null) {
+        // Vektorn öppning->spelare måste peka tydligt UTÅT (samma håll som
+        // grottans utåtriktning), dvs spelaren står framför öppningen.
+        // Normaliserad dot > 0.35 ≈ inom ~70° av rakt framifrån.
+        const dist = Math.sqrt(distSq) || 1;
+        const dot = (dx * ent.dirX + dz * ent.dirZ) / dist;
+        if (dot < 0.35) continue; // bakom eller vid sidan -> ingen ingång
+      }
+      enterDungeon(key);
+      return;
+    }
+  }
+
+  // Planteringsbäddarna: gräv en gång per bädd (E). Står spelaren på bädden
+  // erbjuds "Tryck E för att gräva". En grävd bädd ändrar utseende och kan inte
+  // grävas om (bed.dug). Bäddarna ligger i de fyra diagonala hörnen, långt från
+  // hus och grottor, så de krockar inte med andra interaktioner.
+  for (const bed of world.plantingBeds) {
+    if (bed.dug) continue;
+    const dxb = pos.x - bed.x, dzb = pos.z - bed.z;
+    if (dxb * dxb + dzb * dzb < 10.24) { // inom 3.2 enheter från bäddens center
+      if (!interaction) interaction = { prompt: 'Tryck E för att gräva', act: () => digBed(bed) };
+      break;
+    }
   }
 
   // Husdörrar: olåsta går in automatiskt, låsta visar bara prompt
@@ -1072,8 +1343,8 @@ function tickWorld(delta) {
 }
 
 function tickHouseInterior(delta) {
-  currentHouse.update(delta);
   const pos = player.mesh.position;
+  currentHouse.update(delta, pos);
 
   // Bok och flaska kan ligga nära varandra på skrivbordet. Markera bara EN
   // i taget – den spelaren står närmast – så det går att sikta på rätt sak.
@@ -1111,7 +1382,7 @@ function tickHouseInterior(delta) {
     if (currentHouse === houses.manor) {
       interaction = { prompt: 'Tryck E för att handla (köp / sälj)', act: () => shop.show() };
     } else {
-      interaction = { prompt: 'Tryck E för att köpa 10 pilar (gratis)', act: buyArrows };
+      interaction = { prompt: `Tryck E för att köpa 10 pilar (${PRICES.buy.pilar10} guld)`, act: buyArrows };
     }
   }
 
@@ -1174,7 +1445,71 @@ function tickHouseInterior(delta) {
     }
   }
 
+  // Väderstreckstornen: dyrgrip på översta våningen (fram-höger)
+  if (currentHouse.treasureConfig && !currentHouse.treasureTaken && currentHouse.treasurePos) {
+    if (pos.distanceTo(currentHouse.treasurePos) < 2.2) {
+      const tc = currentHouse.treasureConfig;
+      interaction = {
+        prompt: `Tryck E för att ta ${tc.name}`,
+        act: () => collectTowerTreasure()
+      };
+    }
+  }
+
+  // Symbolrummet: minnespussel. Scenen sköter själva spelet i update(); här
+  // hanterar vi auto-start, belönings-pickup och meddelanden.
+  if (currentHouse === houses.symbolpuzzle) {
+    const sp = houses.symbolpuzzle;
+    sp.onProgress = handleSymbolProgress;
+    // Auto-starta pusslet när man kliver in om det är i vänt-/vinstläge och
+    // inte redan pågår. Gäller både första gången (olöst) OCH vid återbesök av
+    // ett redan löst pussel (omspel). Belöningen ges bara en gång (skyddat i
+    // _win), så omspel ger ingen ny nyckel. Vi startar bara om det inte redan
+    // spelas (showing/input) och inte finns en obärgad belöning att hämta.
+    const rewardWaiting = sp.reward && !sp.reward.taken;
+    if (!sp._autoStarted && !rewardWaiting &&
+        (sp.phase === 'idle' || sp.phase === 'win')) {
+      sp._autoStarted = true;     // bara en (om)start per besök
+      sp.startPuzzle();
+    }
+    // Belöningen (Symbolens nyckel) – bara att hämta första gången den dykt upp.
+    if (rewardWaiting && pos.distanceTo(sp.reward.position) < 2.2) {
+      interaction = {
+        prompt: 'Tryck E för att ta Symbolens nyckel',
+        act: () => {
+          sp.reward.taken = true;
+          if (sp.reward.group) sp.scene.remove(sp.reward.group);
+          inventory.add({ id: 'symbolens_nyckel', name: 'Symbolens nyckel', icon: '🗝️' });
+          updateHud();
+          milestone('symbolnyckel', 'Symbolens nyckel',
+            'Du löste minnespusslet och fann Symbolens nyckel.');
+          showMessage('<b>Symbolens nyckel!</b> En gyllene nyckel präglad med cirkeln och de tre strecken. ' +
+            'Säkert värdefull — och kanske mer än så. Tryck K för att spara.', 6);
+        }
+      };
+    }
+  }
+
   if (pos.distanceTo(currentHouse.exitPos) < 1.0) exitHouse();
+}
+
+// Meddelanden för symbolpusslets faser (sätts som sp.onProgress).
+function handleSymbolProgress(type, payload) {
+  if (type === 'show') {
+    showMessage(`<b>Symbolrummet</b> – runda ${payload.round}/${payload.total}. Lägg sekvensen på minnet…`, 2.5);
+  } else if (type === 'input') {
+    showMessage('Din tur! Kliv på plattorna i samma ordning.', 2);
+  } else if (type === 'round_ok') {
+    showMessage(`<b>Rätt!</b> Runda klar (${payload.round}/${payload.total}). Nästa blir längre.`, 2.5);
+  } else if (type === 'fail') {
+    showMessage('<b>Fel platta.</b> Sekvensen börjar om från början.', 2.5);
+  } else if (type === 'win') {
+    if (payload && payload.replay) {
+      showMessage('<b>Klarat igen!</b> Du minns sekvensen mästerligt.', 3.5);
+    } else {
+      showMessage('<b>Symbolen lyser upp!</b> Altaret öppnar sig och något glittrar fram.', 4);
+    }
+  }
 }
 
 function tickDungeon(delta) {
@@ -1245,7 +1580,7 @@ function animate() {
     minimap.hide();
   }
 
-  music.play(location === 'house' ? 'house' : dungeons[location] ? 'dungeon' : 'world');
+  music.play(dungeons[location] ? 'dungeon' : 'world');
 
   renderPrompt();
 

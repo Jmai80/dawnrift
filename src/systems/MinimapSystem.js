@@ -23,6 +23,22 @@ export class MinimapSystem {
   show() { this.canvas.style.display = 'block'; }
   hide() { this.canvas.style.display = 'none'; }
 
+  // Ritar ett schacktorn sett uppifrån: en liten fyrkantig kropp med fyra
+  // rektangulära tinnar (krenelering) i hörnen. cx,cy = mittpunkt på kartan.
+  _drawRook(ctx, x, y, color, scale = 1) {
+    const body = 6 * scale;   // kroppens sida
+    const pip = 2.4 * scale;  // tinnens sida
+    ctx.fillStyle = color;
+    // kropp (mittruta)
+    ctx.fillRect(x - body / 2, y - body / 2, body, body);
+    // fyra tinnar i hörnen, som sticker ut något
+    const off = body / 2;
+    const corners = [[-off, -off], [off, -off], [-off, off], [off, off]];
+    for (const [ox, oy] of corners) {
+      ctx.fillRect(x + ox - pip / 2, y + oy - pip / 2, pip, pip);
+    }
+  }
+
   // Spelarcentrerad, norr alltid uppåt
   draw(px, pz, rotY) {
     const ctx = this.ctx, s = this.size, cx = s / 2, cy = s / 2;
@@ -40,10 +56,17 @@ export class MinimapSystem {
       const d = Math.hypot(dx, dy);
       let clamped = false;
       if (d > this.maxR) { dx = dx / d * this.maxR; dy = dy / d * this.maxR; clamped = true; }
-      ctx.fillStyle = m.color;
-      ctx.beginPath();
-      ctx.arc(cx + dx, cy + dy, clamped ? 3 : 4, 0, Math.PI * 2);
-      ctx.fill();
+      const mx = cx + dx, my = cy + dy;
+      if (m.shape === 'rook') {
+        // Schacktorn sett uppifrån: en fyrkantig kropp med fyra rektangulära
+        // tinnar (krenelering) i hörnen – fyra pluppar runt en mittruta.
+        this._drawRook(ctx, mx, my, m.color, clamped ? 0.8 : 1);
+      } else {
+        ctx.fillStyle = m.color;
+        ctx.beginPath();
+        ctx.arc(mx, my, clamped ? 3 : 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     ctx.restore();
 

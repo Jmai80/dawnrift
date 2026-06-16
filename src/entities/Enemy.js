@@ -26,19 +26,78 @@ export class Enemy {
 
     this.mesh = new THREE.Group();
     this.bodyMat = new THREE.MeshLambertMaterial({ color });
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(0.9, 1.1, 0.7),
-      this.bodyMat
-    );
-    body.position.y = 0.55;
+    // Lite mörkare nyans till lemmar/öron, härledd ur grundfärgen.
+    const darker = new THREE.Color(color).multiplyScalar(0.7).getHex();
+    this.limbMat = new THREE.MeshLambertMaterial({ color: darker });
 
+    // Bål (något avsmalnande) – huvudkroppen, behåller bodyMat för hit-flash.
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.44, 0.8, 8), this.bodyMat);
+    torso.position.y = 0.7;
+    torso.castShadow = true;
+
+    // Mage (rundad) för en knubbigare siluett.
+    const belly = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8), this.bodyMat);
+    belly.position.y = 0.62; belly.scale.set(1, 0.8, 0.9);
+
+    // Huvud.
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.36, 12, 10), this.bodyMat);
+    head.position.y = 1.32; head.scale.set(1, 0.95, 1.05);
+    head.castShadow = true;
+
+    // Spetsiga öron.
+    const earGeo = new THREE.ConeGeometry(0.12, 0.34, 6);
+    const earL = new THREE.Mesh(earGeo, this.limbMat);
+    earL.position.set(-0.34, 1.42, 0); earL.rotation.z = Math.PI / 2.2;
+    const earR = new THREE.Mesh(earGeo, this.limbMat);
+    earR.position.set(0.34, 1.42, 0); earR.rotation.z = -Math.PI / 2.2;
+
+    // Pannbryn (ger en argare blick) + nos.
+    const brow = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.12), this.limbMat);
+    brow.position.set(0, 1.46, 0.3); brow.rotation.x = 0.3;
+    const snout = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.22, 8), this.bodyMat);
+    snout.position.set(0, 1.28, 0.34); snout.rotation.x = Math.PI / 2;
+
+    // Ögon (lysande gula) – sitter nu insjunkna under brynet.
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffdd33 });
-    const eye1 = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), eyeMat);
-    eye1.position.set(-0.2, 0.85, 0.36);
-    const eye2 = eye1.clone();
-    eye2.position.x = 0.2;
+    const eye1 = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 8), eyeMat);
+    eye1.position.set(-0.15, 1.36, 0.31);
+    const eye2 = eye1.clone(); eye2.position.x = 0.15;
 
-    this.mesh.add(body, eye1, eye2);
+    // Två små huggtänder.
+    const tuskMat = new THREE.MeshLambertMaterial({ color: 0xe8e4d0 });
+    const tusk1 = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.14, 6), tuskMat);
+    tusk1.position.set(-0.1, 1.18, 0.33); tusk1.rotation.x = Math.PI;
+    const tusk2 = tusk1.clone(); tusk2.position.x = 0.1;
+
+    // Armar.
+    const armGeo = new THREE.CylinderGeometry(0.1, 0.08, 0.6, 6);
+    const armL = new THREE.Mesh(armGeo, this.limbMat);
+    armL.position.set(-0.5, 0.78, 0); armL.rotation.z = 0.35;
+    const armR = new THREE.Mesh(armGeo, this.limbMat);
+    armR.position.set(0.5, 0.78, 0); armR.rotation.z = -0.35;
+    // Nävar.
+    const fistL = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), this.limbMat);
+    fistL.position.set(-0.62, 0.5, 0);
+    const fistR = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), this.limbMat);
+    fistR.position.set(0.62, 0.5, 0);
+
+    // Ben.
+    const legGeo = new THREE.CylinderGeometry(0.13, 0.11, 0.5, 6);
+    const legL = new THREE.Mesh(legGeo, this.limbMat);
+    legL.position.set(-0.18, 0.25, 0);
+    const legR = new THREE.Mesh(legGeo, this.limbMat);
+    legR.position.set(0.18, 0.25, 0);
+
+    this.mesh.add(
+      torso, belly, head, earL, earR, brow, snout,
+      eye1, eye2, tusk1, tusk2,
+      armL, armR, fistL, fistR, legL, legR
+    );
+    // Spara svängbara lemmar för en enkel gånganimation.
+    this._armL = armL; this._armR = armR; this._legL = legL; this._legR = legR;
+    this._fistL = fistL; this._fistR = fistR;
+    this._walkT = 0;
+
     this.mesh.scale.setScalar(scale);
     this.mesh.position.set(x, 0, z);
     scene.add(this.mesh);
@@ -50,7 +109,12 @@ export class Enemy {
     if (this.invuln > 0) this.invuln -= delta;
     if (this.hitFlash > 0) {
       this.hitFlash -= delta;
-      this.bodyMat.color.setHex(this.hitFlash > 0 ? 0xffffff : this.baseColor);
+      const flashing = this.hitFlash > 0;
+      this.bodyMat.color.setHex(flashing ? 0xffffff : this.baseColor);
+      if (this.limbMat) {
+        const darker = new THREE.Color(this.baseColor).multiplyScalar(0.7).getHex();
+        this.limbMat.color.setHex(flashing ? 0xffffff : darker);
+      }
     }
 
     if (this.home) {
@@ -64,13 +128,16 @@ export class Enemy {
         const dir = playerPos.clone().sub(p).setY(0).normalize();
         p.addScaledVector(dir, this.speed * delta);
         this.mesh.lookAt(playerPos.x, p.y, playerPos.z);
+        this._animateWalk(delta);
       } else if (dHome > 0.4) {
         const dir = new THREE.Vector3(this.home.x - p.x, 0, this.home.z - p.z).normalize();
         p.addScaledVector(dir, this.speed * delta);
         this.mesh.lookAt(this.home.x, p.y, this.home.z);
+        this._animateWalk(delta);
       } else {
         // Vid posten: vänd blicken österut (mot byn) och vänta.
         this.mesh.lookAt(p.x + 1, p.y, p.z);
+        this._restPose(delta);
       }
       this.resolveCollisions();
       return;
@@ -81,6 +148,9 @@ export class Enemy {
       const dir = playerPos.clone().sub(this.mesh.position).setY(0).normalize();
       this.mesh.position.addScaledVector(dir, this.speed * delta);
       this.mesh.lookAt(playerPos.x, this.mesh.position.y, playerPos.z);
+      this._animateWalk(delta);
+    } else {
+      this._restPose(delta);
     }
 
     this.resolveCollisions();
@@ -106,6 +176,23 @@ export class Enemy {
 
   distanceTo(pos) {
     return this.mesh.position.distanceTo(pos);
+  }
+
+  // Enkel gånganimation: sväng armar/ben i motfas medan vätten rör sig.
+  _animateWalk(delta) {
+    this._walkT += delta * 9;
+    const s = Math.sin(this._walkT) * 0.5;
+    if (this._legL) this._legL.rotation.x = s;
+    if (this._legR) this._legR.rotation.x = -s;
+    if (this._armL) this._armL.rotation.x = -s;
+    if (this._armR) this._armR.rotation.x = s;
+  }
+
+  // Återställ lemmar till vila när vätten står still.
+  _restPose(delta) {
+    for (const part of [this._legL, this._legR, this._armL, this._armR]) {
+      if (part) part.rotation.x += (0 - part.rotation.x) * Math.min(1, delta * 8);
+    }
   }
 
   takeDamage(fromPos) {

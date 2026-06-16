@@ -12,6 +12,11 @@ export function buildMinimapMarkers(world) {
     { x: 30, z: 25, color: '#caa46a' },
     { x: RANGE.center.x, z: RANGE.center.z, color: '#66ff99' },
     { x: GUBBE_HOUSE_POS.x,  z: GUBBE_HOUSE_POS.z,  color: '#b09070' },
+    // Fyra väderstreckstorn – ritas som schacktorn (rook) i sin unika färg.
+    { x: 10,   z: -175, color: '#88ffd8', shape: 'rook' }, // norr
+    { x: 10,   z: 175,  color: '#ffd24a', shape: 'rook' }, // söder
+    { x: 175,  z: -10,  color: '#ff5a6a', shape: 'rook' }, // öster
+    { x: -175, z: 30,   color: '#5a8aff', shape: 'rook' }, // väster
     // Pussel-huset visas bara efter att kartan hittats (ändras dynamiskt av Game.js)
   ];
 }

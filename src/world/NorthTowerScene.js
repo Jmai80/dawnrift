@@ -21,14 +21,21 @@ import * as THREE from 'three';
 // kollisions-cylindrarna är platta (x,z) gäller de bara på den våning de råkar
 // ligga på, precis som i det ursprungliga tornet.
 export class NorthTowerScene {
-  constructor() {
+  constructor(opts = {}) {
+    // Dyrgrip på översta våningen. opts.treasure = { id, name, icon, color }.
+    // Om utelämnad får tornet ingen dyrgrip (bara dekorationer).
+    this.treasureConfig = opts.treasure || null;
+    this.treasure = null;          // THREE.Group för dyrgripen
+    this.treasurePos = null;       // världsposition (för plock-avstånd)
+    this.treasureTaken = false;
+
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0a0f14); // svalare blågrön natt (vs gamla tornets 0x0b0a12)
 
     this.colliders = [];
     // Schakt: bredd för två trapplaner (x ±6.5), djup för fram-golv + trappor +
     // bakre vändplatta (z 12 .. -16).
-    this.bounds = { minX: -6.2, maxX: 6.2, minZ: -16.2, maxZ: 12.2 };
+    this.bounds = { minX: -5.4, maxX: 5.4, minZ: -15.4, maxZ: 11.4 };
     this.cameraMaxY = 999;             // ingen kamerahöjdsklamp i tornet
     this.entryPos = { x: -3, z: 9.5 }; // spawn på vänster sida (vid trappa A:s fot)
     this.faceY = 0;                    // vänd inåt schaktet (-z) vid entré
@@ -57,6 +64,21 @@ export class NorthTowerScene {
     this.Z_STAIR_FRONT = 2;    // trappornas främre ände
     this.Z_STAIR_BACK = -12;   // trappornas bakre ände
     this.Z_LANDING_BACK = -16; // vändplattans bakkant
+    this.STAIR_STEPS = 14;     // måste matcha n i _stairs()
+
+    // Höjd på den TRAPPSTEG-ovansida spelaren står på, för en trappa som går
+    // (zFront,yFront) -> (zBack,yBack). Diskret (inte rampad) så att foten
+    // ligger på varje synligt steg och inte sjunker in i stegboxen.
+    this._stepHeight = (z, zFront, zBack, yFront, yBack) => {
+      const n = this.STAIR_STEPS;
+      let f = (zFront - z) / (zFront - zBack);   // 0 vid front, 1 vid back
+      f = Math.max(0, Math.min(0.999999, f));
+      const i = Math.floor(f * n);               // vilket steg (0..n-1)
+      // _stairs lägger varje stegs ovansida vid den HÖGRE änden av segmentet.
+      const yLoEnd = yFront + (yBack - yFront) * (i / n);
+      const yHiEnd = yFront + (yBack - yFront) * ((i + 1) / n);
+      return Math.max(yLoEnd, yHiEnd);
+    };
 
     this.groundFn = (x, z) => {
       const L = x < 0;
@@ -64,11 +86,16 @@ export class NorthTowerScene {
       // Främre golv: vänster = botten (0), höger = topp (16)
       if (z >= this.Z_STAIR_FRONT) return L ? this.Y_GROUND : this.Y_TOP;
 
-      // Trappzon: A (vänster) klättrar 0->8 bakåt; B (höger) är 16 fram -> 8 bak
+      // Trappzon: diskreta steg som matchar den synliga geometrin.
       if (z >= this.Z_STAIR_BACK) {
-        const t = (this.Z_STAIR_FRONT - z) / (this.Z_STAIR_FRONT - this.Z_STAIR_BACK); // 0..1 fram->bak
-        if (L) return this.Y_GROUND + t * (this.Y_MEZZ - this.Y_GROUND);  // 0 -> 8
-        return this.Y_TOP - t * (this.Y_TOP - this.Y_MEZZ);               // 16 -> 8
+        if (L) {
+          // TRAPPA A: front (z=2) y=0  ->  back (z=-12) y=8
+          return this._stepHeight(z, this.Z_STAIR_FRONT, this.Z_STAIR_BACK,
+            this.Y_GROUND, this.Y_MEZZ);
+        }
+        // TRAPPA B: front (z=2) y=16  ->  back (z=-12) y=8
+        return this._stepHeight(z, this.Z_STAIR_FRONT, this.Z_STAIR_BACK,
+          this.Y_TOP, this.Y_MEZZ);
       }
 
       // Vändplatta längst bak: full bredd på mellanhöjd (y=8)
@@ -126,6 +153,19 @@ export class NorthTowerScene {
     m.position.set(x, y, z);
     m.receiveShadow = true;
     this.scene.add(m);
+  }
+
+  // Lägger en TÄT rad cirkel-colliders längs en linje (ax,az)->(bx,bz), så att
+  // en vägg blir en kontinuerlig spärr som spelaren inte kan tunnla igenom.
+  // Spelarens radie är 0.5; med radius 0.6 och tätt mellanrum blir överlappet
+  // stort nog att stoppa även snabb rörelse mellan frames.
+  _wallColliders(ax, az, bx, bz, radius = 0.6, spacing = 0.6) {
+    const len = Math.hypot(bx - ax, bz - az);
+    const n = Math.max(1, Math.ceil(len / spacing));
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      this.colliders.push({ x: ax + (bx - ax) * t, z: az + (bz - az) * t, radius });
+    }
   }
 
   // --- dekorationer (nya typer: glimrande kristall, ljusstake, glödklot) ----
@@ -214,6 +254,20 @@ export class NorthTowerScene {
     ceil.position.set(0, H, midZ);
     this.scene.add(ceil);
 
+    // Kontinuerliga kollisionsspärrar längs ytterväggarnas insidor, så att
+    // spelaren inte kan tunnla in i eller bakom väggarna. Innerkanterna ligger
+    // strax innanför väggmeshen (väggar vid x=±6.1, z=12.2 / -16.2).
+    const wx = 5.7, wzF = 11.6, wzB = -15.6;
+    this._wallColliders(-wx, wzB, -wx, wzF); // vänster insida
+    this._wallColliders( wx, wzB,  wx, wzF); // höger insida
+    this._wallColliders(-wx, wzB,  wx, wzB); // bortre insida
+    // Främre insidan har ett HÅL vid dörren (x≈-3) så man kan gå ut. Två
+    // segment: från vänstra hörnet fram till dörrens vänsterkant, och från
+    // dörrens högerkant till högra hörnet.
+    const doorX = -3, doorHalf = 1.1; // dörröppning ca 2.2 bred
+    this._wallColliders(-wx, wzF, doorX - doorHalf, wzF);
+    this._wallColliders(doorX + doorHalf, wzF, wx, wzF);
+
     // inre dörr (synlig) på främre väggen, vänd inåt – på vänster sida (spawn)
     const doorMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(1.3, 2.4),
@@ -253,11 +307,9 @@ export class NorthTowerScene {
     const wallZc = (12 + B) / 2;     // mitt mellan främre väggen (12) och z=B
     const wallLen = 12 - B;          // täcker både främre golvet och trappzonen
     this._wall(stoneWall, 0.3, H, wallLen, 0, H / 2, wallZc);
-    // Kollisions-spärr längs mittväggen (tornet använder punkt-colliders, så
-    // den synliga väggen räcker inte för fysiken). Tät rad från fram till z=B.
-    for (let z = 11; z >= B; z -= 1.2) {
-      this.colliders.push({ x: 0, z, radius: 0.7 });
-    }
+    // Kontinuerlig kollisionsspärr längs hela mittväggen (z 11.6 -> B), tät nog
+    // att spelaren aldrig kan tunnla mellan lanen och hamna på fel höjd.
+    this._wallColliders(0, B, 0, 11.6);
 
     // === VÄNDPLATTA (z B..Lb), full bredd, y=8 ===
     // Här kommer man upp för trappa A (bak-vänster) och vänder 180° in i
@@ -266,6 +318,59 @@ export class NorthTowerScene {
     this._crystal(-3.6, this.Y_MEZZ, -14.5, 0x66ffd8);
     this._orbCluster(3.4, this.Y_MEZZ, -14.5, 0xff99cc);
     this._candleStand(0.0, this.Y_MEZZ, -13.0, 0xffd27a);
+
+    // === DYRGRIP på översta våningen (fram-höger, y=16) ===
+    if (this.treasureConfig) this._buildTreasure();
+  }
+
+  // Bygger en lysande dyrgrip på podium på toppgolvet. Formen är gemensam men
+  // färgen unik per torn; den plockas med E (Game.js sköter quest/sälj/sparning).
+  _buildTreasure() {
+    const c = this.treasureConfig;
+    const x = 3.2, y = this.Y_TOP, z = 5.0;
+
+    // podium
+    const pedestal = new THREE.Mesh(
+      new THREE.BoxGeometry(1.1, 1.0, 1.1),
+      new THREE.MeshLambertMaterial({ color: 0x4a4640 })
+    );
+    pedestal.position.set(x, y + 0.5, z);
+    pedestal.castShadow = true;
+    pedestal.receiveShadow = true;
+    this.scene.add(pedestal);
+
+    // själva dyrgripen – en facetterad ädelsten (oktaeder) i tornets unika färg
+    const g = new THREE.Group();
+    const gem = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.42, 0),
+      new THREE.MeshBasicMaterial({ color: c.color, transparent: true, opacity: 0.92 })
+    );
+    gem.position.y = 0;
+    const halo = new THREE.Mesh(
+      new THREE.TorusGeometry(0.55, 0.05, 8, 20),
+      new THREE.MeshBasicMaterial({ color: c.color })
+    );
+    halo.rotation.x = Math.PI / 2;
+    g.add(gem, halo);
+    g.position.set(x, y + 1.55, z);
+    this.scene.add(g);
+
+    const light = new THREE.PointLight(c.color, 16, 11);
+    light.position.set(x, y + 1.8, z);
+    this.scene.add(light);
+
+    this.treasure = g;
+    this._treasureBaseY = y + 1.55;
+    this._treasureHalo = halo;
+    this._treasureLight = light;
+    this.treasurePos = new THREE.Vector3(x, y + 1.55, z);
+  }
+
+  // Anropas av Game.js när spelaren plockat dyrgripen. Döljer den permanent.
+  takeTreasure() {
+    this.treasureTaken = true;
+    if (this.treasure) this.treasure.visible = false;
+    if (this._treasureLight) this._treasureLight.intensity = 0;
   }
 
   update(delta) {
@@ -278,6 +383,10 @@ export class NorthTowerScene {
       for (const f of this._flames) {
         f.intensity = 9 + Math.sin(t * 8 + f.position.x) * 2.5; // flackande låga
       }
+    }
+    if (this.treasure && this.treasure.visible) {
+      this.treasure.rotation.y += delta * 0.9;
+      this.treasure.position.y = this._treasureBaseY + Math.sin(t * 1.6) * 0.08;
     }
   }
 }
