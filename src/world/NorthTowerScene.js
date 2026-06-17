@@ -373,6 +373,16 @@ export class NorthTowerScene {
     if (this._treasureLight) this._treasureLight.intensity = 0;
   }
 
+  // Visar dyrgripen igen så den kan plockas på nytt. Används som säkerhetsnät:
+  // om plock-flaggan är satt men spelaren inte längre bär föremålet (t.ex. ett
+  // äldre sparat läge där dyrgripen sålts innan de blev osäljbara) återställs
+  // den här så finalen inte kan bli omöjlig att nå. Motsatsen till takeTreasure.
+  respawnTreasure() {
+    this.treasureTaken = false;
+    if (this.treasure) this.treasure.visible = true;
+    if (this._treasureLight) this._treasureLight.intensity = 16;
+  }
+
   update(delta) {
     const t = Date.now() * 0.001;
     for (const s of this._spin) {

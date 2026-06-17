@@ -4,6 +4,7 @@ import { HouseScene } from '../world/HouseScene.js';
 import { TowerScene } from '../world/TowerScene.js';
 import { NorthTowerScene } from '../world/NorthTowerScene.js';
 import { SymbolPuzzleHouseScene } from '../world/SymbolPuzzleHouseScene.js';
+import { FinalHouseScene } from '../world/FinalHouseScene.js';
 import { RangeShopScene } from '../world/RangeShopScene.js';
 import { ManorShopScene } from '../world/ManorShopScene.js';
 import { PuzzleHouseScene } from '../world/PuzzleHouseScene.js';
@@ -46,8 +47,10 @@ music.add('dungeon', '/audio/dungeon-theme.mp3');
 
 player.mesh.traverse(o => { if (o.isMesh) o.castShadow = true; });
 
-// Dyrgriparna i de fyra väderstreckstornen. Var och en är unik, säljbar i
-// handelsboden och respawnar aldrig (plock-flaggan sparas per torn).
+// Dyrgriparna i de fyra väderstreckstornen. Var och en är unik och krävs för
+// finalen, därför INTE säljbar. Plock-flaggan sparas per torn, men om spelaren
+// av någon anledning saknar en redan plockad dyrgrip (t.ex. ett gammalt sparat
+// läge där den hann säljas) visas den igen via reconcileTowerTreasures().
 const TOWER_TREASURES = {
   tower2: { id: 'stjarnkristall', name: 'Stjärnkristall', icon: '🔱', color: 0x88ffd8 },
   tower3: { id: 'solgyllene_agg', name: 'Solgyllene ägg', icon: '🥚', color: 0xffd24a },
@@ -68,7 +71,8 @@ const houses = {
   manor:    new ManorShopScene(),
   puzzle:   new PuzzleHouseScene(),
   guardhall:new GuardHallScene(),
-  symbolpuzzle: new SymbolPuzzleHouseScene()
+  symbolpuzzle: new SymbolPuzzleHouseScene(),
+  finalhouse: new FinalHouseScene({ treasures: TOWER_TREASURES })
 };
 
 // --- innehåll (data i src/content/) ---
@@ -198,6 +202,75 @@ function milestone(id, title, text) {
   return true;
 }
 
+// --- finalhuset: upplåsning + finalrum (slutplan steg 3–4) ------------------
+// De fyra tornens dyrgripar är "ädelstenarna" som placeras på socklar i
+// finalrummet. Tillsammans med Symbolens nyckel utgör de de fem "nycklar" som
+// bryter byns sista försegling (samma formulering som ledtrådslapparna).
+const FINAL_GEMS = ['stjarnkristall', 'solgyllene_agg', 'gryningsrubin', 'skymningssafir'];
+const FINAL_KEYS = [...FINAL_GEMS, 'symbolens_nyckel'];
+
+// Finalrummets tillstånd. `placed` = vilka dyrgripar som lagts på socklar
+// (lämnar inventoryt), `solved` = alla fyra placerade och gryningen utlöst,
+// `gameWon` = slutbilden har visats (spelet klart).
+const finalState = {
+  placed: { stjarnkristall: false, solgyllene_agg: false, gryningsrubin: false, skymningssafir: false },
+  solved: false,
+  entered: false,
+  gameWon: false
+};
+
+// Hur många av de fem nycklarna spelaren bär just nu.
+function finalKeysHeld() {
+  return FINAL_KEYS.filter(id => inventory.has(id)).length;
+}
+
+// Dörren ska stå öppen om spelaren bär alla fem nycklar, ELLER redan börjat
+// (lagt minst en dyrgrip på sockel), ELLER löst finalrummet. Den sista delen
+// gör att dörren förblir öppen även när dyrgriparna lämnat inventoryt (de ligger
+// då på socklarna) – annars skulle huset låsa sig självt mitt i pusslet.
+function finalUnlocked() {
+  return finalKeysHeld() === FINAL_KEYS.length
+      || finalState.solved
+      || Object.values(finalState.placed).some(Boolean);
+}
+
+// Kollas när en dyrgrip/nyckel plockas och vid laddning. Låser upp det
+// förseglade husets dörr en gång. silent=true vid laddning (ingen banner).
+function checkFinalUnlock(silent = false) {
+  const door = world.houseDoors.find(d => d.owner === 'finalhouse');
+  if (!door || !door.locked) return false;          // saknas eller redan öppen
+  if (!finalUnlocked()) return false;
+
+  door.locked = false;
+  milestone('forseglingen_bruten', 'Förseglingen bruten',
+    'Med de fyra dyrgriparna och Symbolens nyckel bröts byns sista försegling. Det tredje huset står öppet.');
+  if (!silent) {
+    showMessage(
+      '<b>Symbolen flammar till över byn.</b> Du bär nu alla fem ljus — de fyra dyrgriparna ' +
+      'och Symbolens nyckel. Med ett dovt dån glider det förseglade husets dörr upp. ' +
+      'Gå dit (det låsta huset mitt i byn) … finalen väntar.',
+      9
+    );
+  }
+  return true;
+}
+
+// Säkerhetsnät: om ett torns plock-flagga är satt men spelaren varken bär
+// dyrgripen ELLER har lagt den på en sockel i finalrummet (t.ex. ett gammalt
+// sparat läge där den hann säljas innan dyrgriparna blev osäljbara), visa den i
+// tornet igen så den kan plockas på nytt. Körs vid laddning och vid tornbesök.
+function reconcileTowerTreasures() {
+  for (const key of ['tower2', 'tower3', 'tower4', 'tower5']) {
+    const h = houses[key];
+    if (!h || !h.treasureConfig) continue;
+    const id = h.treasureConfig.id;
+    const accountedFor = inventory.has(id) || finalState.placed[id];
+    if (h.treasureTaken && !accountedFor && h.respawnTreasure) {
+      h.respawnTreasure();
+    }
+  }
+}
+
 // Drick en läkedryck. Returnerar true om en flaska förbrukades.
 function drinkPotion() {
   if (inventory.count('lakedryck') <= 0) return false;
@@ -322,10 +395,13 @@ function readMap() {
   );
 }
 
-// Hur många av de fyra tornens dyrgripar spelaren skördat (0–4).
+// Hur många av de fyra tornens dyrgripar spelaren FAKTISKT har (0–4). Räknar
+// innehav, inte plock-flaggor: en dyrgrip räknas om den ligger i väskan ELLER
+// redan placerats på en sockel i finalrummet. Detta matchar exakt hur dörrens
+// upplåsning (finalUnlocked) räknar, så NPC:erna aldrig kan påstå att du "bär
+// allt" medan en dyrgrip i själva verket saknas (t.ex. om en hann säljas).
 function towerTreasureCount() {
-  return ['tower2', 'tower3', 'tower4', 'tower5']
-    .filter(k => houses[k] && houses[k].treasureTaken).length;
+  return FINAL_GEMS.filter(id => inventory.has(id) || finalState.placed[id]).length;
 }
 
 // Vandraren (NV): före stoden vaknat bara småprat; efter blir han en vägvisare
@@ -430,7 +506,14 @@ function serializeProgress() {
       tower5: !!houses.tower5.treasureTaken
     },
     // Planteringsbäddar: en bool per bädd (true = uppgrävd, respawnar aldrig).
-    dugBeds: world.plantingBeds.map(b => !!b.dug)
+    dugBeds: world.plantingBeds.map(b => !!b.dug),
+    // Finalrummet: vilka dyrgripar som lagts på socklar, om gryningen utlösts
+    // och om slutbilden visats (spelet klart).
+    final: {
+      solved: finalState.solved,
+      placed: { ...finalState.placed },
+      gameWon: finalState.gameWon
+    }
   };
 }
 
@@ -509,10 +592,32 @@ function applyProgressSnapshot(s) {
     if (tw[key] && houses[key] && !houses[key].treasureTaken) houses[key].takeTreasure();
   }
 
+  // Finalrummet: återställ vilka dyrgripar som ligger på socklar + löst-läge.
+  // Måste ske FÖRE reconcile (så säkerhetsnätet inte respawnar en placerad
+  // dyrgrip) och före checkFinalUnlock (så dörren hålls öppen mitt i pusslet).
+  const f = s.final || {};
+  finalState.solved = !!f.solved;
+  finalState.gameWon = !!f.gameWon;     // återställs, men slutbilden poppar inte vid laddning
+  const fp = f.placed || {};
+  for (const id of FINAL_GEMS) finalState.placed[id] = !!fp[id];
+  if (finalState.solved) finalState.entered = true;
+  if (houses.finalhouse && houses.finalhouse.restore) {
+    houses.finalhouse.restore({ solved: finalState.solved, placed: finalState.placed });
+  }
+
+  // Säkerhetsnät: visa åter en dyrgrip vars plock-flagga är satt men som
+  // spelaren varken bär eller har lagt på en sockel (t.ex. ett äldre sparat
+  // läge där den hann säljas).
+  reconcileTowerTreasures();
+
   // Planteringsbäddar: återställ uppgrävt utseende för redan grävda bäddar.
   // (Återställer bara visuellt + flaggan – ger ingen ny loot.)
   const db = s.dugBeds || [];
   world.plantingBeds.forEach((bed, i) => { if (db[i] && !bed.dug) bed.dig(); });
+
+  // Finalhuset: om spelaren redan bär alla fem nycklar i det laddade läget,
+  // återställ den brutna förseglingen (tyst – ingen banner vid laddning).
+  checkFinalUnlock(true);
 
   updateHud();
 }
@@ -612,12 +717,11 @@ const PRICES = {
     pil: 1,
     azurbrosch: 500,
     silverkalk: 180,
-    rubinhjarta: 320,
-    stjarnkristall: 280,
-    solgyllene_agg: 340,
-    gryningsrubin: 300,
-    skymningssafir: 320,
-    symbolens_nyckel: 450
+    rubinhjarta: 320
+    // OBS: de fyra tornens dyrgripar (stjarnkristall, solgyllene_agg,
+    // gryningsrubin, skymningssafir) och symbolens_nyckel är medvetet INTE
+    // säljbara – de krävs för att bryta finalförseglingen. Saknas säljpris
+    // dyker de aldrig upp i säljlistan.
   }
 };
 
@@ -1036,6 +1140,9 @@ function collectTowerTreasure() {
 
   showMessage(`<b>Du tog ${tc.name}!</b> En sällsynt dyrgrip — kan säljas i handelsboden. ` +
     `(${taken}/4 torn skördade.) Tryck K för att spara dina framsteg.`, 6);
+
+  // Kanske var detta den sista pusselbiten – kolla om förseglingen brister.
+  checkFinalUnlock();
 }
 
 // --- planteringsbäddar: gräv-funktion --------------------------------------
@@ -1183,6 +1290,18 @@ function exitDungeon() {
 
 function enterHouse(door) {
   const house = houses[door.owner];
+  // Finalhuset är upplåst men interiören byggs i nästa steg (slutplan steg 4).
+  // Tills dess: visa ett avslöjande platshållarmeddelande i stället för att
+  // krascha eller felaktigt påstå att dörren är låst.
+  if (door.owner === 'finalhouse' && !house) {
+    showMessage(
+      '<b>Den sista förseglingen är bruten.</b> Dörren glider upp på glänt och en ' +
+      'kall, gammal luft strömmar ut. Innanför anar du fyra tomma socklar i mörkret — ' +
+      'men rummet är ännu inte redo att beträdas. <em>(Finalrummet byggs härnäst.)</em>',
+      6
+    );
+    return;
+  }
   if (!house) {
     // Ingen interiör kopplad till dörren (t.ex. owner: null). Behandla som
     // låst i stället för att krascha på houses[undefined].scene.
@@ -1193,9 +1312,27 @@ function enterHouse(door) {
   clearArrows();
   currentHouse = house;
   houseReturnDoor = door;
+  // Torn: säkerställ att en dyrgrip som spelaren saknar visas igen vid besök.
+  if (house.treasureConfig) reconcileTowerTreasures();
   // Milstolpe: första besöket i handelsboden (herrgården).
   if (door.owner === 'manor' && milestone('besok_handelsboden', 'Handelsboden', 'Hitta och besök handelsboden i herrgården.')) {
     showMessage('<b>Du kliver in i handelsboden.</b> Köpmannen bakom disken nickar mot dig.', 4);
+  }
+  // Finalrummet: första gången spelaren kliver in (och om det ännu är olöst).
+  if (door.owner === 'finalhouse' && !finalState.entered && !finalState.solved) {
+    finalState.entered = true;
+    showMessage(
+      '<b>Det förseglade huset.</b> Luften är kall och stilla. Fyra tomma socklar står ' +
+      'i en ring kring en mörk, låst symbol i taket. Ställ dig vid en sockel och tryck E ' +
+      'för att lägga dit en av de fyra dyrgriparna.',
+      8
+    );
+  }
+  // Finalrummet redan löst: visa slutbilden igen. winGame() sätter dessutom
+  // gameWon + milstolpen första gången, för saves som löstes innan steg 5 fanns.
+  // Liten fördröjning så scenen hinner renderas innan overlayn tonas in.
+  if (door.owner === 'finalhouse' && finalState.solved) {
+    setTimeout(() => { if (location === 'house' && currentHouse === houses.finalhouse) winGame(); }, 700);
   }
   currentHouse.scene.add(player.mesh);
   // Symbolrummet: nollställ auto-start-flaggan vid varje nytt besök så pusslet
@@ -1332,7 +1469,17 @@ function tickWorld(delta) {
     const dx = pos.x - door.x, dz = pos.z - door.z;
     if (dx * dx + dz * dz < 5.3) {
       if (door.locked) {
-        if (!interaction) interaction = { prompt: 'Dörren är låst – förseglad tills vidare', act: null };
+        if (!interaction) {
+          if (door.owner === 'finalhouse') {
+            // Det förseglade huset: visa hur många av de fem nycklarna som bärs.
+            interaction = {
+              prompt: `Det förseglade huset – symbolen glöder svagt. Fem nycklar krävs (${finalKeysHeld()}/5).`,
+              act: null
+            };
+          } else {
+            interaction = { prompt: 'Dörren är låst – förseglad tills vidare', act: null };
+          }
+        }
       } else {
         enterHouse(door);
         return;
@@ -1485,15 +1632,163 @@ function tickHouseInterior(delta) {
             'Du löste minnespusslet och fann Symbolens nyckel.');
           showMessage('<b>Symbolens nyckel!</b> En gyllene nyckel präglad med cirkeln och de tre strecken. ' +
             'Säkert värdefull — och kanske mer än så. Tryck K för att spara.', 6);
+          // Sista nyckeln? Kontrollera om finalhuset låses upp.
+          checkFinalUnlock();
         }
       };
+    }
+  }
+
+  // Finalrummet: placera dyrgripar på socklar (fri ordning). Står spelaren
+  // nära en tom sockel och bär en ännu oplacerad dyrgrip → erbjud att placera.
+  if (currentHouse === houses.finalhouse && !finalState.solved) {
+    const fh = houses.finalhouse;
+    // Bär spelaren någon dyrgrip som inte redan ligger på en sockel?
+    const heldGem = FINAL_GEMS.find(id => inventory.has(id) && !finalState.placed[id]);
+    if (heldGem) {
+      // Närmaste tomma sockel inom räckhåll.
+      let near = null;
+      for (const ped of fh.pedestals) {
+        if (ped.filled) continue;
+        if (pos.distanceTo(ped.pos) < 2.2) { near = ped; break; }
+      }
+      if (near) {
+        const remaining = FINAL_GEMS.filter(id => !finalState.placed[id]).length;
+        interaction = {
+          prompt: `Tryck E för att placera en dyrgrip (${remaining} kvar)`,
+          act: () => placeFinalGem(heldGem)
+        };
+      }
     }
   }
 
   if (pos.distanceTo(currentHouse.exitPos) < 1.0) exitHouse();
 }
 
-// Meddelanden för symbolpusslets faser (sätts som sp.onProgress).
+// Placera en dyrgrip på nästa lediga sockel i finalrummet. När alla fyra ligger
+// på plats utlöses gryningen och epilogen (slutplan steg 4).
+function placeFinalGem(id) {
+  const fh = houses.finalhouse;
+  if (!fh || finalState.placed[id] || !inventory.has(id)) return;
+  if (!fh.placeGem(id)) return;            // ingen ledig sockel (bör ej hända)
+  finalState.placed[id] = true;
+  inventory.remove(id);
+  updateHud();
+
+  const placedNow = FINAL_GEMS.filter(g => finalState.placed[g]).length;
+  if (placedNow < FINAL_GEMS.length) {
+    showMessage(`<b>Du sätter dyrgripen på sockeln.</b> Den glöder till. (${placedNow}/4 placerade.)`, 3);
+    return;
+  }
+
+  // Fjärde dyrgripen: lös pusslet och spela upp gryningen + epilogen.
+  triggerFinalEpilogue();
+}
+
+// Gryningssekvensen: ljuset väller in i rummet och sanningen avslöjas.
+// Helt pusselbaserat slut – ingen strid. Tonen är hoppfull.
+function triggerFinalEpilogue() {
+  if (finalState.solved) return;
+  finalState.solved = true;
+  houses.finalhouse.playDawn();
+  milestone('finalrummet_klart', 'Gryningens återkomst',
+    'Du placerade de fyra dyrgriparna och bröt symbolens lås — gryningen återvände till byn.');
+
+  // Tre etapper, tidsstyrda så texten hinner läsas. (Engångssekvens.)
+  showMessage(
+    '<b>Den fjärde dyrgripen sjunker på plats.</b> Ringen i golvet drar ett djupt ' +
+    'andetag — och brister. Varmt, gyllene ljus väller upp genom sprickorna.',
+    8
+  );
+  setTimeout(() => {
+    showMessage(
+      '<b>Sanningen:</b> Cirkeln var aldrig byn. Symbolen — cirkeln genomborrad av tre ' +
+      'streck — var ett lås, och innanför hölls ingen fara, utan <em>gryningen själv</em>. ' +
+      'De som en gång bodde här fruktade morgonen och stängde ute den; de tre strecken var ' +
+      'grottornas tre sigill, de fyra dyrgriparna deras vakter. Du har inte släppt ut något ' +
+      'ont — du har släppt in dagen.',
+      12
+    );
+  }, 8200);
+  setTimeout(() => {
+    // Slutbilden (steg 5): den hoppfulla finalen visas som en helskärms-overlay
+    // i stället för en textruta i världen.
+    winGame();
+  }, 20600);
+}
+
+// --- slut-overlay + gameWon (slutplan steg 5) -------------------------------
+// Helskärms-slutbild som byggs dynamiskt i DOM:en (kräver ingen ändring i
+// index.html). Visas en gång när finalen fullbordas. Kan stängas för att
+// fortsätta utforska den nu soliga världen.
+let _winOverlay = null;
+
+function buildWinOverlay() {
+  if (_winOverlay) return _winOverlay;
+
+  const style = document.createElement('style');
+  style.textContent = `
+    #dawnrift-win { position: fixed; inset: 0; z-index: 9999; display: none;
+      align-items: center; justify-content: center; text-align: center;
+      font-family: system-ui, sans-serif; color: #fff5e6;
+      background: radial-gradient(120% 120% at 50% 18%, #ffd9a0 0%, #f2a45c 18%, #9a5a6e 46%, #3a2440 74%, #160f22 100%);
+      opacity: 0; transition: opacity 1.4s ease; }
+    #dawnrift-win.show { display: flex; opacity: 1; }
+    #dawnrift-win .panel { max-width: 640px; padding: 0 28px; }
+    #dawnrift-win .sun { width: 116px; height: 116px; margin: 0 auto 22px;
+      border-radius: 50%; background: radial-gradient(circle, #fff7e0 0%, #ffd27a 45%, #ff9e52 100%);
+      box-shadow: 0 0 60px 18px rgba(255,180,90,0.65); }
+    #dawnrift-win h1 { font-size: 2.5rem; margin: 0 0 6px; letter-spacing: 1px;
+      text-shadow: 0 2px 18px rgba(0,0,0,0.4); }
+    #dawnrift-win .sub { font-size: 1.05rem; opacity: 0.92; margin: 0 0 20px;
+      letter-spacing: 3px; text-transform: uppercase; }
+    #dawnrift-win p { font-size: 1.06rem; line-height: 1.6; margin: 0 auto 26px;
+      max-width: 560px; text-shadow: 0 1px 8px rgba(0,0,0,0.35); }
+    #dawnrift-win button { font: inherit; font-size: 1rem; color: #3a2440;
+      background: #ffe6c2; border: 0; border-radius: 999px; padding: 12px 28px;
+      cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
+    #dawnrift-win button:hover { background: #fff3df; }
+  `;
+  document.head.appendChild(style);
+
+  const el = document.createElement('div');
+  el.id = 'dawnrift-win';
+  el.innerHTML = `
+    <div class="panel">
+      <div class="sun"></div>
+      <h1>Gryningen återvänder</h1>
+      <div class="sub">Dawnrift — fullbordat</div>
+      <p>Byn var aldrig fången. Det var gryningen som hölls inne, och nu faller
+         verkligt solljus för första gången över husen, tornen och de nyvända
+         bäddarna. Stoden lyser varmt. Det är morgon — och det är ditt verk.</p>
+      <p style="opacity:.85;font-size:.98rem;">Tack för att du spelade.</p>
+      <button id="dawnrift-win-close">Fortsätt utforska gryningen</button>
+    </div>`;
+  document.body.appendChild(el);
+  el.querySelector('#dawnrift-win-close').addEventListener('click', hideWinOverlay);
+
+  _winOverlay = el;
+  return el;
+}
+
+function showWinOverlay() {
+  const el = buildWinOverlay();
+  el.classList.add('show');
+}
+
+function hideWinOverlay() {
+  if (_winOverlay) _winOverlay.classList.remove('show');
+}
+
+// Fullborda spelet: sätt gameWon, milstolpe och visa slutbilden.
+function winGame() {
+  if (!finalState.gameWon) {
+    finalState.gameWon = true;
+    milestone('spelet_klart', 'Dawnrift fullbordat',
+      'Du bröt byns sista försegling och släppte in gryningen. Spelet är klart.');
+  }
+  showWinOverlay();
+}
 function handleSymbolProgress(type, payload) {
   if (type === 'show') {
     showMessage(`<b>Symbolrummet</b> – runda ${payload.round}/${payload.total}. Lägg sekvensen på minnet…`, 2.5);

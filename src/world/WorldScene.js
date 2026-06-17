@@ -70,7 +70,7 @@ export class WorldScene {
 
     addHouse(this.scene, this.colliders, this.houseDoors, 15, -20, { owner: 'elda' });
     addHouse(this.scene, this.colliders, this.houseDoors, -25, 10, { owner: 'torvald' });
-    addHouse(this.scene, this.colliders, this.houseDoors, 30, 25, { locked: true });
+    addHouse(this.scene, this.colliders, this.houseDoors, 30, 25, { owner: 'finalhouse', locked: true });
     addManor(this.scene, this.colliders, this.houseDoors, 0, -48);
 
 
